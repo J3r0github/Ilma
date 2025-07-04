@@ -1,0 +1,133 @@
+paths:
+  /api/auth/request-password-reset:
+    post:
+      summary: Request password reset link or token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        "200":
+          description: Password reset requested (email sent if applicable)
+        "400":
+          description: Invalid request
+
+  /api/auth/reset-password:
+    post:
+      summary: Reset password with valid reset token and upload new encrypted private key blob
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reset_token:
+                  type: string
+                  example: "some-reset-token"
+                new_password_hash:
+                  type: string
+                  example: "argon2-hash-of-new-password"
+                encrypted_private_key_blob:
+                  type: string
+                  description: Password-encrypted private key blob
+                  example: "base64-encoded-encrypted-blob"
+      responses:
+        "200":
+          description: Password reset successful
+        "400":
+          description: Invalid token or data
+
+  /api/user/recovery-key/{username}:
+    get:
+      summary: Get recovery key (plaintext) for a user — admin only
+      tags:
+        - User Management
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "teemu123"
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Recovery key retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recovery_key:
+                    type: string
+                    example: "wordlist-or-passphrase"
+        "403":
+          description: Forbidden — admin access only
+        "404":
+          description: User not found
+
+  /api/user/set-recovery-key:
+    post:
+      summary: Set or update recovery key for a user (admin or user)
+      tags:
+        - User Management
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  example: "teemu123"
+                recovery_key:
+                  type: string
+                  description: Plaintext recovery key
+                  example: "wordlist-or-passphrase"
+      responses:
+        "200":
+          description: Recovery key updated
+        "400":
+          description: Invalid data or unauthorized
+
+  /api/user/public-key/{username}:
+    get:
+      summary: Get user's public key
+      tags:
+        - User Management
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "teemu123"
+      responses:
+        "200":
+          description: User's public key retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  public_key:
+                    type: string
+                    example: "base64-encoded-public-key"
+        "404":
+          description: User not found

@@ -1,0 +1,14 @@
+/target
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/

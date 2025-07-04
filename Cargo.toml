@@ -1,0 +1,30 @@
+[package]
+name = "ilma"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.11.0"
+actix-web-httpauth = "0.8.2"
+actix-cors = "0.7.0"
+argon2 = "0.5.3"
+chrono = { version = "0.4.41", features = ["serde"] }
+dotenvy = "0.15.7"
+env_logger = "0.11.0"
+futures = "0.3.31"
+jsonwebtoken = "9.3.1"
+log = "0.4.27"
+rand = "0.8.5"
+regex = "1.11.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "uuid", "migrate"] }
+tokio = { version = "1.0", features = ["time", "sync", "macros", "signal"] }
+utoipa = { version = "5.4.0", features = ["uuid", "chrono"] }
+dashmap = "6.0.1"
+utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
+uuid = { version = "1.17", features = ["serde", "v4"] }
+
+[dev-dependencies]
+actix-web = { version = "4.11.0", features = ["macros"] }
+tokio-test = "0.4"

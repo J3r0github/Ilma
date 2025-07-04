@@ -1,0 +1,501 @@
+openapi: 3.0.0
+info:
+  title: Anti-Wilma MVP API v2
+  version: 0.2.0
+  description: |
+    School management backend API with GDPR-compliant E2E messaging,
+    atomic permissions, multi-recipient encrypted messages, and modular access control.
+
+servers:
+  - url: http://localhost:8000/api
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserRole:
+      type: string
+      enum: [student, teacher, principal]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/UserRole"
+        is_superuser:
+          type: boolean
+        public_key:
+          type: string
+          description: Base64 encoded public key for E2E encryption
+
+    Permission:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    PermissionSet:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Permission"
+
+    Class:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        teacher_id:
+          type: string
+          format: uuid
+
+    Thread:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        participants:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    ThreadPreview:
+      type: object
+      properties:
+        thread_id:
+          type: string
+          format: uuid
+        last_message_preview:
+          type: string
+        last_message_at:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        sender_id:
+          type: string
+          format: uuid
+        sent_at:
+          type: string
+          format: date-time
+        ciphertext:
+          type: string
+          description: Symmetric encrypted message blob (base64)
+        encrypted_keys:
+          type: array
+          description: Encrypted symmetric keys per recipient
+          items:
+            type: object
+            properties:
+              recipient_id:
+                type: string
+                format: uuid
+              encrypted_key:
+                type: string
+                description: Symmetric key encrypted with recipient's public key
+
+paths:
+
+  /auth/login:
+    post:
+      summary: Log in and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        200:
+          description: JWT token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        401:
+          description: Unauthorized - invalid credentials
+
+  /me:
+    get:
+      summary: Get current user info
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users:
+    post:
+      summary: Create a user (superuser/principal only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, role, public_key]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  description: Plain password (only for initial setup)
+                role:
+                  $ref: "#/components/schemas/UserRole"
+                public_key:
+                  type: string
+                  description: Base64 encoded public key for E2E encryption
+      responses:
+        201:
+          description: User created successfully
+
+  /users/{id}/public_key:
+    get:
+      summary: Get public key of a user
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: User UUID
+      responses:
+        200:
+          description: User's public key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  public_key:
+                    type: string
+                    description: Base64 encoded public key
+
+  /permissions:
+    get:
+      summary: List all permissions
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: List of permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+  /permissions/sets:
+    get:
+      summary: List all permission sets
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: List of permission sets with permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PermissionSet"
+
+  /users/{id}/permissions:
+    get:
+      summary: Get permissions assigned to a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Permissions list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+    post:
+      summary: Assign permissions to a user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permission_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        204:
+          description: Permissions assigned
+
+  /classes:
+    get:
+      summary: List classes user is part of
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: List of classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Class"
+
+    post:
+      summary: Create a new class (teacher only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        201:
+          description: Class created
+
+  /classes/{class_id}/students:
+    post:
+      summary: Add student to class (teacher only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: class_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                student_id:
+                  type: string
+                  format: uuid
+      responses:
+        200:
+          description: Student added to class
+
+  /grades:
+    post:
+      summary: Assign grade to student (teacher only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, class_id, grade]
+              properties:
+                student_id:
+                  type: string
+                  format: uuid
+                class_id:
+                  type: string
+                  format: uuid
+                grade:
+                  type: string
+      responses:
+        201:
+          description: Grade assigned
+
+  /attendance:
+    post:
+      summary: Record attendance for student
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [student_id, class_id, status]
+              properties:
+                student_id:
+                  type: string
+                  format: uuid
+                class_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+                  enum: [present, absent, late]
+      responses:
+        200:
+          description: Attendance recorded
+
+  /messages/threads:
+    get:
+      summary: List message threads for user (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        200:
+          description: List of threads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ThreadPreview"
+
+    post:
+      summary: Create a new message in a thread or new thread if none exists
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [participant_ids, ciphertext, encrypted_keys]
+              properties:
+                participant_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: All participants in the thread, including sender
+                ciphertext:
+                  type: string
+                  description: Symmetric encrypted message blob (base64)
+                encrypted_keys:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      recipient_id:
+                        type: string
+                        format: uuid
+                      encrypted_key:
+                        type: string
+                  description: Encrypted symmetric keys per recipient
+      responses:
+        201:
+          description: Message sent, thread created if needed
+
+  /messages/threads/{thread_id}:
+    get:
+      summary: Get messages from a thread (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: thread_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: before
+          schema:
+            type: string
+            description: Message ID to paginate before
+      responses:
+        200:
+          description: Messages list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
