@@ -8,6 +8,9 @@ use utoipa_swagger_ui::SwaggerUi;
 use log::{info, error, warn};
 use std::process;
 use std::sync::Arc;
+use signal_hook::consts::{SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
+use std::thread;
 
 mod models;
 mod handlers;
@@ -206,36 +209,37 @@ async fn main() -> std::io::Result<()> {
     .bind(&bind_address)?
     .run();
 
-    // Setup shutdown handling
     let server_handle = server.handle();
-    
-    // Spawn a task to handle shutdown signals
-    let shutdown_task = tokio::spawn(async move {
-        // Wait for shutdown signal
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to install CTRL+C signal handler");
-        
-        info!("Shutdown signal received, cleaning up test users...");
-        
-        // Clean up test users
-        if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
-            error!("Error cleaning up test users: {:?}", e);
+
+    // Signal handler in a blocking thread
+    let cleanup_handle = thread::spawn(move || {
+        let mut signals = Signals::new(&[SIGINT, SIGTERM]).expect("Failed to set up signals");
+        // Wait for any signal
+        for sig in signals.forever() {
+            match sig {
+                SIGINT | SIGTERM => {
+                    info!("Shutdown signal ({}) received, cleaning up test users...", sig);
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
+                            error!("Error cleaning up test users: {:?}", e);
+                        }
+                        server_handle.stop(true).await;
+                    });
+                    break;
+                }
+                _ => (), // Ignore others
+            }
         }
-        
-        // Stop the server
-        server_handle.stop(true).await;
     });
 
-    // Wait for either the server to finish or the shutdown task
-    tokio::select! {
-        result = server => {
-            result
-        }
-        _ = shutdown_task => {
-            Ok(())
-        }
-    }
+    // Await server (actix handles its own runtime)
+    let result = server.await;
+
+    // Wait for cleanup thread to finish
+    let _ = cleanup_handle.join();
+
+    result
 }
 
 fn auth_routes() -> actix_web::Scope {
