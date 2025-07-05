@@ -1192,7 +1192,7 @@ dependencies = [
  "futures",
  "jsonwebtoken",
  "log",
- "rand 0.9.1",
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
