@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use utoipa::path;
 use uuid::Uuid;
 use log::error;
+use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
@@ -25,7 +26,11 @@ pub async fn list_classes(
     let claims = extract_claims(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
 
-    let user_id = Uuid::parse_str(&claims.sub).unwrap();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            actix_web::error::ErrorBadRequest("Invalid user ID format")
+        })?;
 
     let classes = match claims.role {
         UserRole::Teacher => {
@@ -36,6 +41,10 @@ pub async fn list_classes(
             .bind(user_id)
             .fetch_all(pool.as_ref())
             .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })
         }
         UserRole::Student => {
             // Students see classes they're enrolled in
@@ -49,6 +58,10 @@ pub async fn list_classes(
             .bind(user_id)
             .fetch_all(pool.as_ref())
             .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })
         }
         UserRole::Principal => {
             // Principals see all classes
@@ -57,12 +70,12 @@ pub async fn list_classes(
             )
             .fetch_all(pool.as_ref())
             .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })
         }
-    }
-    .map_err(|e| {
-        error!("Database error: {}", e);
-        actix_web::error::ErrorInternalServerError("Database error")
-    })?;
+    }?;
 
     Ok(HttpResponse::Ok().json(classes))
 }

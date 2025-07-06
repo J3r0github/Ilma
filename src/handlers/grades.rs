@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use utoipa::path;
 use uuid::Uuid;
 use log::error;
+use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
@@ -33,7 +34,11 @@ pub async fn assign_grade(
         return Ok(HttpResponse::Forbidden().json(json!({"error": "Only teachers can assign grades"})));
     }
 
-    let teacher_id = Uuid::parse_str(&claims.sub).unwrap();
+    let teacher_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            actix_web::error::ErrorBadRequest("Invalid user ID format")
+        })?;
 
     // Check if the teacher teaches this class (unless they're a principal)
     if !matches!(claims.role, UserRole::Principal) {
@@ -45,6 +50,7 @@ pub async fn assign_grade(
         .await
         .map_err(|e| {
             error!("Database error: {}", e);
+            sentry::capture_error(&e);
             actix_web::error::ErrorInternalServerError("Database error")
         })?;
 

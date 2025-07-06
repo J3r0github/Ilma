@@ -1,5 +1,5 @@
+use sentry;
 use sqlx::{PgPool, Postgres, migrate::MigrateDatabase};
-use std::env;
 use log::{info, error};
 use std::process;
 
@@ -13,6 +13,7 @@ pub async fn create_pool(database_url: &str) -> Result<DbPool, sqlx::Error> {
             Ok(_) => info!("Database created successfully."),
             Err(error) => {
                 error!("Error creating database: {}", error);
+                sentry::capture_error(&error);
                 process::exit(1);
             }
         }
@@ -28,7 +29,7 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
     info!("Running database migrations...");
     
     // Create user_role enum type
-    sqlx::query(r#"
+    let migration_result = sqlx::query(r#"
         DO $$ BEGIN
             CREATE TYPE user_role AS ENUM ('student', 'teacher', 'principal');
         EXCEPTION
@@ -36,7 +37,12 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
         END $$;
     "#)
     .execute(pool)
-    .await?;
+    .await;
+    if let Err(e) = migration_result {
+        error!("Migration error (user_role): {}", e);
+        sentry::capture_error(&e);
+        return Err(e);
+    }
 
     // Create attendance_status enum type
     sqlx::query(r#"

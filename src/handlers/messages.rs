@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use utoipa::path;
 use uuid::Uuid;
 use log::error;
+use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
@@ -30,7 +31,11 @@ pub async fn list_threads(
     let claims = extract_claims(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
 
-    let user_id = Uuid::parse_str(&claims.sub).unwrap();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            actix_web::error::ErrorBadRequest("Invalid user ID format")
+        })?;
     let limit = query.limit.unwrap_or(20);
     let offset = query.offset.unwrap_or(0);
 
@@ -58,6 +63,7 @@ pub async fn list_threads(
     .await
     .map_err(|e| {
         error!("Database error: {}", e);
+        sentry::capture_error(&e);
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 
@@ -82,11 +88,16 @@ pub async fn send_message(
     let claims = extract_claims(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Authentication required"))?;
 
-    let sender_id = Uuid::parse_str(&claims.sub).unwrap();
+    let sender_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            actix_web::error::ErrorBadRequest("Invalid user ID format")
+        })?;
 
     // Start a transaction
     let mut tx = pool.begin().await.map_err(|e| {
         error!("Transaction error: {}", e);
+        sentry::capture_error(&e);
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 

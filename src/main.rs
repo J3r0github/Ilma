@@ -11,6 +11,7 @@ use std::sync::Arc;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::thread;
+use sentry;
 
 mod models;
 mod handlers;
@@ -83,6 +84,15 @@ struct ApiDoc;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
+    // Initialize Sentry before anything else
+    let _guard = sentry::init((
+        "https://3f9fcea9d74d52651fd4344b1507d852@o4509620732887040.ingest.de.sentry.io/4509622336749648",
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            send_default_pii: true,
+            ..Default::default()
+        }
+    ));
     env_logger::init();
 
     let database_url = env::var("DATABASE_URL")
@@ -92,12 +102,16 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to create database pool");
 
     // Run migrations
-    db::run_migrations(&pool).await
-        .expect("Failed to run migrations");
+    if let Err(e) = db::run_migrations(&pool).await {
+        error!("Failed to run migrations: {:?}", e);
+        sentry::capture_message(&format!("Failed to run migrations: {:?}", e), sentry::Level::Error);
+        process::exit(1);
+    }
 
     // Create test users if in testing mode
     if let Err(e) = auth::create_test_users(&pool).await {
         error!("Failed to create test users: {:?}", e);
+        sentry::capture_message(&format!("Failed to create test users: {:?}", e), sentry::Level::Error);
         process::exit(1);
     }
 
@@ -108,14 +122,17 @@ async fn main() -> std::io::Result<()> {
     if let Ok(jwt_secret) = env::var("JWT_SECRET") {
         if jwt_secret.len() < 32 {
             error!("JWT_SECRET must be at least 32 characters long");
+            sentry::capture_message("JWT_SECRET must be at least 32 characters long", sentry::Level::Error);
             process::exit(1);
         }
         if jwt_secret.contains("change-this") || jwt_secret.contains("your-super-secret") {
             error!("JWT_SECRET appears to be a default value. Please change it to a secure random string");
+            sentry::capture_message("JWT_SECRET appears to be a default value. Please change it to a secure random string", sentry::Level::Error);
             process::exit(1);
         }
     } else {
         error!("JWT_SECRET environment variable must be set");
+        sentry::capture_message("JWT_SECRET environment variable must be set", sentry::Level::Error);
         process::exit(1);
     }
 
@@ -223,6 +240,7 @@ async fn main() -> std::io::Result<()> {
                     rt.block_on(async {
                         if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
                             error!("Error cleaning up test users: {:?}", e);
+                            sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
                         }
                         server_handle.stop(true).await;
                     });

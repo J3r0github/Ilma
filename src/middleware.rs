@@ -13,6 +13,7 @@ use std::rc::Rc;
 use std::pin::Pin;
 use futures::Future;
 use std::env;
+use sentry;
 
 // Rate limit configuration for a specific endpoint
 #[derive(Clone)]
@@ -210,6 +211,10 @@ where
 
             // Check rate limit (with test user consideration)
             if !rate_limiter.check_rate_limit_with_test_user(&client_ip, &method, &path, is_test_user) {
+                sentry::capture_message(
+                    &format!("Rate limit exceeded for {} {} from {}", method, path, client_ip),
+                    sentry::Level::Warning
+                );
                 let response = HttpResponse::TooManyRequests()
                     .json(serde_json::json!({
                         "error": "Rate limit exceeded",
@@ -266,6 +271,7 @@ pub async fn jwt_middleware(
             Ok(req)
         }
         Err(_) => {
+            sentry::capture_message("Invalid JWT token in middleware", sentry::Level::Warning);
             Err((actix_web::error::ErrorUnauthorized("Invalid token"), req))
         }
     }

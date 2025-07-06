@@ -82,8 +82,8 @@ pub type ApiResult<T> = Result<T, ApiError>;
 // Helper functions for common error conversions
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        // Log the actual error internally without exposing it
         log::error!("Database error: {:?}", err);
+        sentry::capture_error(&err);
         ApiError::DatabaseError
     }
 }
@@ -91,6 +91,7 @@ impl From<sqlx::Error> for ApiError {
 impl From<argon2::password_hash::Error> for ApiError {
     fn from(err: argon2::password_hash::Error) -> Self {
         log::error!("Password hashing error: {:?}", err);
+        sentry::capture_message(&err.to_string(), sentry::Level::Error);
         ApiError::InternalServerError
     }
 }
@@ -98,6 +99,7 @@ impl From<argon2::password_hash::Error> for ApiError {
 impl From<jsonwebtoken::errors::Error> for ApiError {
     fn from(err: jsonwebtoken::errors::Error) -> Self {
         log::error!("JWT error: {:?}", err);
+        sentry::capture_error(&err);
         match err.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => ApiError::AuthenticationError,
             jsonwebtoken::errors::ErrorKind::InvalidToken => ApiError::AuthenticationError,

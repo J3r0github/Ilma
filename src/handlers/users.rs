@@ -9,6 +9,7 @@ use crate::auth::{extract_claims, hash_password};
 use crate::db::DbPool;
 use crate::models::{User, CreateUserRequest, PublicKeyResponse, SetRecoveryKeyRequest, RecoveryKeyResponse};
 use crate::errors::ApiError;
+use sentry;
 
 #[utoipa::path(
     get,
@@ -28,7 +29,10 @@ pub async fn get_me(
         .ok_or(ApiError::AuthenticationError)?;
 
     let user_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| ApiError::ValidationError("Invalid user ID format".to_string()))?;
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
 
     let user = sqlx::query_as::<_, User>(
         "SELECT id, username, email, password_hash, role, is_superuser, public_key, recovery_key, encrypted_private_key_blob, created_at, updated_at 
@@ -36,7 +40,11 @@ pub async fn get_me(
     )
     .bind(user_id)
     .fetch_optional(pool.as_ref())
-    .await?;
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        ApiError::from(e)
+    })?;
 
     match user {
         Some(user) => {
@@ -45,6 +53,10 @@ pub async fn get_me(
         }
         None => {
             warn!("User {} not found in database", user_id);
+            sentry::capture_message(
+                &format!("User {} not found in database", user_id),
+                sentry::Level::Warning
+            );
             Ok(HttpResponse::NotFound().json(json!({"error": {"code": "USER_NOT_FOUND", "message": "User not found"}})))
         }
     }
@@ -72,6 +84,10 @@ pub async fn create_user(
     // Check if user has permission to create users (superuser or principal)
     if !claims.is_superuser && !matches!(claims.role, crate::models::UserRole::Principal) {
         warn!("User {} attempted to create user without permissions", claims.sub);
+        sentry::capture_message(
+            &format!("User {} attempted to create user without permissions", claims.sub),
+            sentry::Level::Warning
+        );
         return Err(ApiError::AuthorizationError);
     }
 
@@ -112,7 +128,11 @@ pub async fn create_user(
     .bind(&user_req.role)
     .bind(&user_req.public_key)
     .execute(pool.as_ref())
-    .await?;
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        ApiError::from(e)
+    })?;
 
     info!("User {} created new user with ID: {}", claims.sub, user_id);
     Ok(HttpResponse::Created().json(json!({"message": "User created successfully", "id": user_id})))

@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use utoipa::path;
 use uuid::Uuid;
 use log::error;
+use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
@@ -32,6 +33,7 @@ pub async fn list_permissions(
     .await
     .map_err(|e| {
         error!("Database error: {}", e);
+        sentry::capture_error(&e);
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 

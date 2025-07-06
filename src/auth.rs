@@ -6,6 +6,7 @@ use rand::rngs::OsRng;
 use serde_json::json;
 use std::env;
 use log::{error, warn, info};
+use sentry;
 
 use crate::models::{Claims, LoginRequest, LoginResponse, User, UserRole, PasswordResetRequest, ResetPasswordRequest, PasswordResetToken};
 use crate::db::DbPool;
@@ -23,6 +24,7 @@ pub fn verify_password(password: &str, hash: &str) -> ApiResult<bool> {
     let parsed_hash = PasswordHash::new(hash)
         .map_err(|e| {
             error!("Failed to parse password hash: {:?}", e);
+            sentry::capture_message(&e.to_string(), sentry::Level::Error);
             ApiError::InternalServerError
         })?;
     let argon2 = Argon2::default();
@@ -32,11 +34,13 @@ pub fn verify_password(password: &str, hash: &str) -> ApiResult<bool> {
 fn validate_jwt_secret(secret: &str) -> ApiResult<()> {
     if secret.len() < 32 {
         error!("JWT secret too short. Must be at least 32 characters");
+        sentry::capture_message("JWT secret too short", sentry::Level::Error);
         return Err(ApiError::InternalServerError);
     }
     
     if secret.contains("change-this") || secret.contains("secret") {
         error!("JWT secret appears to be a default/weak value");
+        sentry::capture_message("JWT secret appears to be a default/weak value", sentry::Level::Error);
         return Err(ApiError::InternalServerError);
     }
     
@@ -47,6 +51,7 @@ pub fn create_jwt(user: &User) -> ApiResult<String> {
     let secret = env::var("JWT_SECRET")
         .map_err(|_| {
             error!("JWT_SECRET environment variable not set");
+            sentry::capture_message("JWT_SECRET environment variable not set", sentry::Level::Error);
             ApiError::InternalServerError
         })?;
     
@@ -79,6 +84,7 @@ pub fn verify_jwt(token: &str) -> ApiResult<Claims> {
     let secret = env::var("JWT_SECRET")
         .map_err(|_| {
             error!("JWT_SECRET environment variable not set");
+            sentry::capture_message("JWT_SECRET environment variable not set", sentry::Level::Error);
             ApiError::InternalServerError
         })?;
     
@@ -121,6 +127,7 @@ pub async fn login(
     .await
     .map_err(|e| {
         error!("Database error during login: {:?}", e);
+        sentry::capture_error(&e);
         // Don't expose database errors to users - return authentication error instead
         ApiError::AuthenticationError
     })?;
@@ -133,11 +140,19 @@ pub async fn login(
                 Ok(HttpResponse::Ok().json(LoginResponse { token }))
             } else {
                 warn!("Failed login attempt for email: {}", login_req.email);
+                sentry::capture_message(
+                    &format!("Failed login attempt for email: {}", login_req.email),
+                    sentry::Level::Warning
+                );
                 Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
             }
         }
         None => {
             warn!("Login attempt for non-existent email: {}", login_req.email);
+            sentry::capture_message(
+                &format!("Login attempt for non-existent email: {}", login_req.email),
+                sentry::Level::Warning
+            );
             Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
         }
     }
