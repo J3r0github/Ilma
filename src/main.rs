@@ -242,7 +242,7 @@ async fn main() -> std::io::Result<()> {
                             .route("/grades", web::get().to(handlers::grades::get_grades))
                             .route("/attendance", web::post().to(handlers::attendance::record_attendance))
                             .route("/attendance", web::get().to(handlers::attendance::get_attendance))
-                            .route("/messages", web::get().to(handlers::messages::list_threads))
+                            .route("/messages/threads", web::get().to(handlers::messages::list_threads))
                             .route("/messages", web::post().to(handlers::messages::send_message))
                             .route("/messages/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
                             .route("/schedule", web::get().to(handlers::schedule::get_schedule))
