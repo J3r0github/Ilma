@@ -12,7 +12,7 @@ use sentry;
 
 // Platform-specific imports
 #[cfg(not(target_os = "windows"))]
-use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
+use signal_hook::{consts::{SIGINT, SIGTERM, SIGQUIT}, iterator::Signals};
 #[cfg(not(target_os = "windows"))]
 use std::thread;
 
