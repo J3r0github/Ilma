@@ -1,14 +1,12 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde_json::json;
-use sqlx::PgPool;
-use utoipa::path;
 use uuid::Uuid;
 use log::error;
 use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
-use crate::models::{Permission, PermissionSet, AssignPermissionsRequest};
+use crate::models::{Permission, PermissionSet, AssignPermissionsRequest, UserRole};
 
 #[utoipa::path(
     get,

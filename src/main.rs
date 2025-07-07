@@ -8,10 +8,13 @@ use utoipa_swagger_ui::SwaggerUi;
 use log::{info, error, warn};
 use std::process;
 use std::sync::Arc;
-use signal_hook::consts::{SIGINT, SIGTERM};
-use signal_hook::iterator::Signals;
-use std::thread;
 use sentry;
+
+// Platform-specific imports
+#[cfg(not(target_os = "windows"))]
+use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
+#[cfg(not(target_os = "windows"))]
+use std::thread;
 
 mod models;
 mod handlers;
@@ -26,7 +29,7 @@ use models::*;
 #[openapi(
     info(
         title = "Ilma API",
-        version = "1.0.0",
+        version = "1.1.0",
         description = "School management system API with end-to-end encryption for messaging. Currently under development.",
         contact(
             name = "API Support / Developer",
@@ -39,6 +42,7 @@ use models::*;
         auth::reset_password,
         handlers::users::get_me,
         handlers::users::create_user,
+        handlers::users::list_users,
         handlers::users::get_user_public_key,
         handlers::users::get_recovery_key,
         handlers::users::set_recovery_key,
@@ -50,21 +54,28 @@ use models::*;
         handlers::classes::list_classes,
         handlers::classes::create_class,
         handlers::classes::add_student_to_class,
+        handlers::classes::get_class_students,
+        handlers::classes::remove_student_from_class,
         handlers::grades::assign_grade,
+        handlers::grades::get_grades,
         handlers::attendance::record_attendance,
+        handlers::attendance::get_attendance,
         handlers::messages::list_threads,
         handlers::messages::send_message,
         handlers::messages::get_thread_messages,
+        handlers::schedule::get_schedule,
+        handlers::schedule::create_schedule_event,
     ),
     components(
         schemas(
             User, UserRole, Permission, PermissionSet, Class, Thread, 
             ThreadPreview, Message, EncryptedKey, Grade, Attendance, AttendanceStatus,
-            LoginRequest, CreateUserRequest, PasswordResetRequest, ResetPasswordRequest, 
+            ScheduleEvent, LoginRequest, CreateUserRequest, PasswordResetRequest, ResetPasswordRequest, 
             SetRecoveryKeyRequest, AssignPermissionsRequest, CreateClassRequest, 
             AddStudentRequest, AssignGradeRequest, RecordAttendanceRequest, 
-            SendMessageRequest, LoginResponse, RecoveryKeyResponse, PublicKeyResponse, 
-            PasswordResetToken, ErrorResponse, PaginationQuery, MessagePaginationQuery
+            SendMessageRequest, CreateScheduleEventRequest, LoginResponse, RecoveryKeyResponse, PublicKeyResponse, 
+            PasswordResetToken, ErrorResponse, PaginationQuery, MessagePaginationQuery,
+            UserSearchParams, GradeSearchParams, AttendanceSearchParams, ScheduleSearchParams
         )
     ),
     tags(
@@ -74,7 +85,8 @@ use models::*;
         (name = "classes", description = "Class creation and student management"),
         (name = "grades", description = "Grade assignment and management"),
         (name = "attendance", description = "Attendance tracking and reporting"),
-        (name = "messages", description = "End-to-end encrypted messaging system")
+        (name = "messages", description = "End-to-end encrypted messaging system"),
+        (name = "schedule", description = "Schedule and calendar management")
     ),
     servers(
         (url = "http://localhost:8000", description = "Development server"),    )
@@ -216,6 +228,7 @@ async fn main() -> std::io::Result<()> {
                             .service(grade_routes())
                             .service(attendance_routes())
                             .service(message_routes())
+                            .service(schedule_routes())
                     )
             )
             .service(
@@ -228,34 +241,65 @@ async fn main() -> std::io::Result<()> {
 
     let server_handle = server.handle();
 
-    // Signal handler in a blocking thread
-    let cleanup_handle = thread::spawn(move || {
-        let mut signals = Signals::new(&[SIGINT, SIGTERM]).expect("Failed to set up signals");
-        // Wait for any signal
-        for sig in signals.forever() {
-            match sig {
-                SIGINT | SIGTERM => {
-                    info!("Shutdown signal ({}) received, cleaning up test users...", sig);
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
-                        if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
-                            error!("Error cleaning up test users: {:?}", e);
-                            sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
-                        }
-                        server_handle.stop(true).await;
-                    });
-                    break;
+    // Platform-specific signal handling
+    #[cfg(not(target_os = "windows"))]
+    let cleanup_handle = {
+        let pool_for_cleanup = pool_for_cleanup.clone();
+        let server_handle = server_handle.clone();
+        
+        std::thread::spawn(move || {
+            let mut signals = Signals::new(&[SIGINT, SIGTERM]).expect("Failed to set up signals");
+            // Wait for any signal
+            for sig in signals.forever() {
+                match sig {
+                    SIGINT | SIGTERM | SIGQUIT => {
+                        info!("Shutdown signal ({}) received, cleaning up test users...", sig);
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
+                                error!("Error cleaning up test users: {:?}", e);
+                                sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
+                            }
+                            server_handle.stop(true).await;
+                        });
+                        break;
+                    }
+                    _ => (), // Ignore others
                 }
-                _ => (), // Ignore others
             }
-        }
-    });
+        })
+    };
+
+    #[cfg(target_os = "windows")]
+    let cleanup_handle = {
+        let pool_for_cleanup = pool_for_cleanup.clone();
+        let server_handle = server_handle.clone();
+        
+        tokio::spawn(async move {
+            // Wait for Ctrl+C on Windows
+            if let Err(e) = tokio::signal::ctrl_c().await {
+                error!("Failed to listen for Ctrl+C: {:?}", e);
+                return;
+            }
+            
+            info!("Ctrl+C received, cleaning up test users...");
+            if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
+                error!("Error cleaning up test users: {:?}", e);
+                sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
+            }
+            server_handle.stop(true).await;
+        })
+    };
 
     // Await server (actix handles its own runtime)
     let result = server.await;
 
-    // Wait for cleanup thread to finish
+    // Wait for cleanup to finish
+    #[cfg(not(target_os = "windows"))]
     let _ = cleanup_handle.join();
+    
+    #[cfg(target_os = "windows")]
+    let _ = cleanup_handle.await;
 
     result
 }
@@ -270,6 +314,7 @@ fn auth_routes() -> actix_web::Scope {
 fn user_routes() -> actix_web::Scope {
     web::scope("")
         .route("/me", web::get().to(handlers::users::get_me))
+        .route("/users", web::get().to(handlers::users::list_users))
         .route("/users", web::post().to(handlers::users::create_user))
         .route("/users/{id}/public_key", web::get().to(handlers::users::get_user_public_key))
         .route("/user/recovery-key/{username}", web::get().to(handlers::users::get_recovery_key))
@@ -289,16 +334,20 @@ fn class_routes() -> actix_web::Scope {
     web::scope("/classes")
         .route("", web::get().to(handlers::classes::list_classes))
         .route("", web::post().to(handlers::classes::create_class))
+        .route("/{class_id}/students", web::get().to(handlers::classes::get_class_students))
         .route("/{class_id}/students", web::post().to(handlers::classes::add_student_to_class))
+        .route("/{class_id}/students/{student_id}", web::delete().to(handlers::classes::remove_student_from_class))
 }
 
 fn grade_routes() -> actix_web::Scope {
     web::scope("/grades")
+        .route("", web::get().to(handlers::grades::get_grades))
         .route("", web::post().to(handlers::grades::assign_grade))
 }
 
 fn attendance_routes() -> actix_web::Scope {
     web::scope("/attendance")
+        .route("", web::get().to(handlers::attendance::get_attendance))
         .route("", web::post().to(handlers::attendance::record_attendance))
 }
 
@@ -307,6 +356,12 @@ fn message_routes() -> actix_web::Scope {
         .route("/threads", web::get().to(handlers::messages::list_threads))
         .route("/threads", web::post().to(handlers::messages::send_message))
         .route("/threads/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
+}
+
+fn schedule_routes() -> actix_web::Scope {
+    web::scope("/schedule")
+        .route("", web::get().to(handlers::schedule::get_schedule))
+        .route("", web::post().to(handlers::schedule::create_schedule_event))
 }
 
 fn configure_endpoint_rate_limits(rate_limiter: &mut middleware::RateLimiter) {
@@ -364,6 +419,11 @@ fn configure_endpoint_rate_limits(rate_limiter: &mut middleware::RateLimiter) {
         rate_limiter.add_endpoint_config("POST_api_classes".to_string(), config);
     }
 
+    // Configure schedule endpoints
+    if let Some(config) = parse_endpoint_config("POST", "/api/schedule") {
+        rate_limiter.add_endpoint_config("POST_api_schedule".to_string(), config);
+    }
+
     // Log configured endpoint limits
     for (method, path) in &[
         ("POST", "/api/auth/login"),
@@ -374,6 +434,7 @@ fn configure_endpoint_rate_limits(rate_limiter: &mut middleware::RateLimiter) {
         ("POST", "/api/grades"),
         ("POST", "/api/attendance"),
         ("POST", "/api/classes"),
+        ("POST", "/api/schedule"),
     ] {
         if parse_endpoint_config(method, path).is_some() {
             info!("Configured custom rate limit for {} {}", method, path);

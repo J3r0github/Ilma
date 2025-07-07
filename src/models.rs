@@ -124,6 +124,20 @@ pub enum AttendanceStatus {
     Late,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct ScheduleEvent {
+    pub id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub date: chrono::NaiveDate,
+    pub class_id: Option<Uuid>,
+    pub teacher_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 // Request DTOs
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PasswordResetRequest {
@@ -194,6 +208,16 @@ pub struct SendMessageRequest {
     pub encrypted_keys: Vec<EncryptedKey>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateScheduleEventRequest {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub date: chrono::NaiveDate,
+    pub class_id: Option<Uuid>,
+}
+
 // Response DTOs
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RecoveryKeyResponse {
@@ -247,4 +271,32 @@ pub struct PaginationQuery {
 pub struct MessagePaginationQuery {
     pub limit: Option<i32>,
     pub before: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UserSearchParams {
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub role: Option<UserRole>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct GradeSearchParams {
+    pub student_id: Option<Uuid>,
+    pub class_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AttendanceSearchParams {
+    pub student_id: Option<Uuid>,
+    pub class_id: Option<Uuid>,
+    pub date: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ScheduleSearchParams {
+    pub class_id: Option<Uuid>,
+    pub student_id: Option<Uuid>,
+    pub date_from: Option<chrono::NaiveDate>,
+    pub date_to: Option<chrono::NaiveDate>,
 }

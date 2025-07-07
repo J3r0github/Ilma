@@ -23,9 +23,11 @@ utoipa = { version = "5.4.0", features = ["uuid", "chrono"] }
 dashmap = "6.0.1"
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
 uuid = { version = "1.17", features = ["serde", "v4"] }
-signal-hook = "0.3.18"
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal"] }
 sentry = "0.41.0"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+signal-hook = "0.3.17"
 
 [dev-dependencies]
 actix-web = { version = "4.11.0", features = ["macros"] }

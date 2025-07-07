@@ -1,13 +1,12 @@
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde_json::json;
-use utoipa::path;
 use uuid::Uuid;
 use log::{info, warn};
 use regex::Regex;
 
 use crate::auth::{extract_claims, hash_password};
 use crate::db::DbPool;
-use crate::models::{User, CreateUserRequest, PublicKeyResponse, SetRecoveryKeyRequest, RecoveryKeyResponse};
+use crate::models::{User, CreateUserRequest, PublicKeyResponse, SetRecoveryKeyRequest, RecoveryKeyResponse, UserRole};
 use crate::errors::ApiError;
 use sentry;
 
@@ -343,4 +342,88 @@ pub async fn get_user_public_key_by_username(
             Ok(HttpResponse::NotFound().json(json!({"error": {"code": "USER_NOT_FOUND", "message": "User not found"}})))
         }
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/users",
+    tag = "users",
+    security(("bearerAuth" = [])),
+    params(
+        ("username" = Option<String>, Query, description = "Filter by username"),
+        ("email" = Option<String>, Query, description = "Filter by email"),
+        ("role" = Option<UserRole>, Query, description = "Filter by role")
+    ),
+    responses(
+        (status = 200, description = "List of users", body = [User])
+    )
+)]
+pub async fn list_users(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    query: web::Query<crate::models::UserSearchParams>,
+) -> Result<HttpResponse, ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(ApiError::AuthenticationError)?;
+
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    let mut query_builder = sqlx::QueryBuilder::new(
+        "SELECT id, username, email, role, is_superuser, public_key, created_at, updated_at FROM users WHERE 1=1"
+    );
+
+    // Apply access control based on user role
+    match claims.role {
+        crate::models::UserRole::Student => {
+            // Students can only see users in their classes
+            query_builder.push(" AND (id IN (SELECT DISTINCT cs2.student_id FROM class_students cs1 JOIN class_students cs2 ON cs1.class_id = cs2.class_id WHERE cs1.student_id = ");
+            query_builder.push_bind(user_id);
+            query_builder.push(") OR id IN (SELECT DISTINCT teacher_id FROM classes WHERE id IN (SELECT class_id FROM class_students WHERE student_id = ");
+            query_builder.push_bind(user_id);
+            query_builder.push(")))");
+        }
+        crate::models::UserRole::Teacher => {
+            // Teachers can see students in their classes and other teachers
+            query_builder.push(" AND (role = 'teacher' OR id IN (SELECT student_id FROM class_students WHERE class_id IN (SELECT id FROM classes WHERE teacher_id = ");
+            query_builder.push_bind(user_id);
+            query_builder.push(")))");
+        }
+        crate::models::UserRole::Principal => {
+            // Principals can see all users
+        }
+    }
+
+    // Apply filters
+    if let Some(username) = &query.username {
+        query_builder.push(" AND username ILIKE ");
+        query_builder.push_bind(format!("%{}%", username));
+    }
+
+    if let Some(email) = &query.email {
+        query_builder.push(" AND email ILIKE ");
+        query_builder.push_bind(format!("%{}%", email));
+    }
+
+    if let Some(role) = &query.role {
+        query_builder.push(" AND role = ");
+        query_builder.push_bind(role);
+    }
+
+    query_builder.push(" ORDER BY username");
+
+    let users = query_builder
+        .build_query_as::<User>()
+        .fetch_all(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            ApiError::from(e)
+        })?;
+
+    info!("User {} retrieved {} users", user_id, users.len());
+    Ok(HttpResponse::Ok().json(users))
 }

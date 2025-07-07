@@ -263,6 +263,24 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Create schedule_events table
+    sqlx::query(r#"
+        CREATE TABLE IF NOT EXISTS schedule_events (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+            end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+            date DATE NOT NULL,
+            class_id UUID REFERENCES classes(id) ON DELETE CASCADE,
+            teacher_id UUID REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+    "#)
+    .execute(pool)
+    .await?;
+
     // Insert default permissions
     sqlx::query(r#"
         INSERT INTO permissions (name, description) VALUES

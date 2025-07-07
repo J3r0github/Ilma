@@ -136,23 +136,12 @@ pub async fn login(
         Some(user) => {
             if verify_password(&login_req.password, &user.password_hash)? {
                 let token = create_jwt(&user)?;
-                info!("Successful login for user: {}", user.id);
                 Ok(HttpResponse::Ok().json(LoginResponse { token }))
             } else {
-                warn!("Failed login attempt for email: {}", login_req.email);
-                sentry::capture_message(
-                    &format!("Failed login attempt for email: {}", login_req.email),
-                    sentry::Level::Warning
-                );
                 Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
             }
         }
         None => {
-            warn!("Login attempt for non-existent email: {}", login_req.email);
-            sentry::capture_message(
-                &format!("Login attempt for non-existent email: {}", login_req.email),
-                sentry::Level::Warning
-            );
             Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
         }
     }
