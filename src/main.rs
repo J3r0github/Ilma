@@ -219,34 +219,17 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api")
                     .service(auth_routes())
-                    .service(
-                        user_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        permission_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        class_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        grade_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        attendance_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        message_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
-                    .service(
-                        schedule_routes()
-                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                    )
+            )
+            .service(
+                web::scope("/api")
+                    .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    .service(user_routes())
+                    .service(permission_routes())
+                    .service(class_routes())
+                    .service(grade_routes())
+                    .service(attendance_routes())
+                    .service(message_routes())
+                    .service(schedule_routes())
             )
             .service(
                 SwaggerUi::new("/swagger-ui/{_:.*}")
@@ -370,9 +353,9 @@ fn attendance_routes() -> actix_web::Scope {
 
 fn message_routes() -> actix_web::Scope {
     web::scope("/messages")
-        .route("/threads", web::get().to(handlers::messages::list_threads))
-        .route("/threads", web::post().to(handlers::messages::send_message))
-        .route("/threads/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
+        .route("", web::get().to(handlers::messages::list_threads))
+        .route("", web::post().to(handlers::messages::send_message))
+        .route("/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
 }
 
 fn schedule_routes() -> actix_web::Scope {
