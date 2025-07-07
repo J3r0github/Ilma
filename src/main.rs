@@ -220,15 +220,32 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .service(auth_routes())
                     .service(
-                        web::scope("")
+                        user_routes()
                             .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
-                            .service(user_routes())
-                            .service(permission_routes())
-                            .service(class_routes())
-                            .service(grade_routes())
-                            .service(attendance_routes())
-                            .service(message_routes())
-                            .service(schedule_routes())
+                    )
+                    .service(
+                        permission_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    )
+                    .service(
+                        class_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    )
+                    .service(
+                        grade_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    )
+                    .service(
+                        attendance_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    )
+                    .service(
+                        message_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
+                    )
+                    .service(
+                        schedule_routes()
+                            .wrap(HttpAuthentication::bearer(middleware::jwt_middleware))
                     )
             )
             .service(
