@@ -1,35 +1,17 @@
 use actix_web::{web, HttpResponse, Result};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use rand::rngs::OsRng;
 use serde_json::json;
 use std::env;
-use log::{error, warn, info};
+use log::{error, warn, info, debug};
 use sentry;
-
-use crate::models::{Claims, LoginRequest, LoginResponse, User, UserRole, PasswordResetRequest, ResetPasswordRequest, PasswordResetToken};
-use crate::db::DbPool;
-use crate::errors::{ApiError, ApiResult};
 use rand::Rng;
 
-pub fn hash_password(password: &str) -> ApiResult<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let password_hash = argon2.hash_password(password.as_bytes(), &salt)?;
-    Ok(password_hash.to_string())
-}
-
-pub fn verify_password(password: &str, hash: &str) -> ApiResult<bool> {
-    let parsed_hash = PasswordHash::new(hash)
-        .map_err(|e| {
-            error!("Failed to parse password hash: {:?}", e);
-            sentry::capture_message(&e.to_string(), sentry::Level::Error);
-            ApiError::InternalServerError
-        })?;
-    let argon2 = Argon2::default();
-    Ok(argon2.verify_password(password.as_bytes(), &parsed_hash).is_ok())
-}
+use crate::models::{Claims, LoginRequest, LoginResponse, User, PasswordResetRequest, ResetPasswordRequest, PasswordResetToken};
+use crate::db::DbPool;
+use crate::errors::{ApiError, ApiResult};
+use crate::utils::verify_password;
+use crate::configloader::{create_test_data_from_config, cleanup_test_data};
 
 fn validate_jwt_secret(secret: &str) -> ApiResult<()> {
     if secret.len() < 32 {
@@ -113,7 +95,7 @@ pub async fn login(
     pool: web::Data<DbPool>,
     login_req: web::Json<LoginRequest>,
 ) -> Result<HttpResponse, ApiError> {
-    info!("Login attempt for email: {}", login_req.email);
+    debug!("Login attempt for email: {}", login_req.email);
     
     let user = sqlx::query_as::<_, User>(
         "SELECT id, username, email, password_hash, role, is_superuser, public_key, 
@@ -308,233 +290,12 @@ pub fn extract_claims(req: &actix_web::HttpRequest) -> Option<Claims> {
     req.extensions().get::<Claims>().cloned()
 }
 
-// Testing mode functions
-pub fn is_testing_mode() -> bool {
-    env::var("TESTING_MODE")
-        .map(|v| v.to_lowercase() == "true" || v == "1")
-        .unwrap_or(false)
-}
-
-use uuid::Uuid;
-use std::collections::HashSet;
-use std::sync::{Mutex, LazyLock};
-
-// Track test user IDs for cleanup
-static TEST_USER_IDS: LazyLock<Mutex<HashSet<Uuid>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-
+// Legacy function for backward compatibility
 pub async fn create_test_users(pool: &DbPool) -> ApiResult<()> {
-    if !is_testing_mode() {
-        return Ok(());
-    }
-
-    info!("Creating test users for testing mode...");
-    
-    let mut test_users = Vec::new();
-    
-    // Add main test user from environment variables
-    if let (Ok(username), Ok(email), Ok(password)) = (
-        env::var("TEST_USERNAME"),
-        env::var("TEST_EMAIL"),
-        env::var("TEST_PASSWORD")
-    ) {
-        test_users.push((username, email, password, UserRole::Principal, true));
-    }
-    
-    // Add additional test users (TEST_USER_1 through TEST_USER_5)
-    for i in 1..=5 {
-        if let (Ok(username), Ok(email), Ok(password)) = (
-            env::var(&format!("TEST_USER_{}_USERNAME", i)),
-            env::var(&format!("TEST_USER_{}_EMAIL", i)),
-            env::var(&format!("TEST_USER_{}_PASSWORD", i))
-        ) {
-            // Parse role from environment variable, default to Student
-            let role = env::var(&format!("TEST_USER_{}_ROLE", i))
-                .unwrap_or_else(|_| "student".to_string())
-                .to_lowercase();
-            
-            let (user_role, is_superuser) = match role.as_str() {
-                "admin" | "principal" => (UserRole::Principal, true),
-                "teacher" => (UserRole::Teacher, false),
-                "student" | _ => (UserRole::Student, false),
-            };
-            
-            test_users.push((username, email, password, user_role, is_superuser));
-        }
-    }
-    
-    if test_users.is_empty() {
-        warn!("No test users configured in environment variables");
-        return Ok(());
-    }
-
-    let mut test_user_ids = TEST_USER_IDS.lock().unwrap();
-    
-    for (username, email, password, role, is_superuser) in test_users {
-        let user_id = Uuid::new_v4();
-        let password_hash = hash_password(&password)?;
-        
-        // Generate a dummy public key for testing
-        let public_key = format!("TEST_PUBLIC_KEY_{}", user_id);
-        
-        // Create the test user with proper error handling for schema differences
-        let result = sqlx::query(
-            r#"
-            INSERT INTO users (id, username, email, password_hash, role, is_superuser, public_key, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-            ON CONFLICT (email) DO UPDATE SET
-                username = EXCLUDED.username,
-                password_hash = EXCLUDED.password_hash,
-                role = EXCLUDED.role,
-                is_superuser = EXCLUDED.is_superuser,
-                public_key = EXCLUDED.public_key,
-                updated_at = NOW()
-            "#
-        )
-        .bind(user_id)
-        .bind(&username)
-        .bind(&email)
-        .bind(&password_hash)
-        .bind(&role)
-        .bind(is_superuser)
-        .bind(&public_key)
-        .execute(pool)
-        .await;
-
-        match result {
-            Ok(_) => {
-                test_user_ids.insert(user_id);
-                info!("Created test user: {} ({})", username, email);
-            }
-            Err(e) => {
-                // If username column doesn't exist, try without it
-                if e.to_string().contains("username") {
-                    warn!("Username column not found, creating test user without username");
-                    sqlx::query(
-                        r#"
-                        INSERT INTO users (id, email, password_hash, role, is_superuser, public_key, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                        ON CONFLICT (email) DO UPDATE SET
-                            password_hash = EXCLUDED.password_hash,
-                            role = EXCLUDED.role,
-                            is_superuser = EXCLUDED.is_superuser,
-                            public_key = EXCLUDED.public_key,
-                            updated_at = NOW()
-                        "#
-                    )
-                    .bind(user_id)
-                    .bind(&email)
-                    .bind(&password_hash)
-                    .bind(&role)
-                    .bind(is_superuser)
-                    .bind(&public_key)
-                    .execute(pool)
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to create test user {} (fallback): {:?}", username, e);
-                        ApiError::InternalServerError
-                    })?;
-                    
-                    test_user_ids.insert(user_id);
-                    info!("Created test user: {} ({})", username, email);
-                } else {
-                    error!("Failed to create test user {}: {:?}", username, e);
-                    return Err(ApiError::InternalServerError);
-                }
-            }
-        }
-    }
-
-    Ok(())
+    create_test_data_from_config(pool).await
 }
 
+// Legacy function for backward compatibility
 pub async fn cleanup_test_users(pool: &DbPool) -> ApiResult<()> {
-    if !is_testing_mode() {
-        return Ok(());
-    }
-
-    info!("Cleaning up test users and their data...");
-    
-    // Get test user IDs and immediately drop the guard
-    let ids: Vec<Uuid> = {
-        let test_user_ids = TEST_USER_IDS.lock().unwrap();
-        
-        if test_user_ids.is_empty() {
-            info!("No test users to clean up");
-            return Ok(());
-        }
-        
-        // Convert to Vec for use in SQL query
-        test_user_ids.iter().cloned().collect()
-    }; // Guard is dropped here
-    
-    // Clean up in reverse order of foreign key dependencies
-    
-    // 1. Delete message encrypted keys
-    sqlx::query("DELETE FROM message_encrypted_keys WHERE message_id IN (SELECT id FROM messages WHERE sender_id = ANY($1))")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 2. Delete messages
-    sqlx::query("DELETE FROM messages WHERE sender_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 3. Delete thread participants
-    sqlx::query("DELETE FROM thread_participants WHERE user_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 4. Delete threads created by test users
-    sqlx::query("DELETE FROM threads WHERE id IN (SELECT DISTINCT thread_id FROM thread_participants WHERE user_id = ANY($1))")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 5. Delete attendance records
-    sqlx::query("DELETE FROM attendance WHERE student_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 6. Delete grades
-    sqlx::query("DELETE FROM grades WHERE student_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 7. Delete class enrollments
-    sqlx::query("DELETE FROM class_students WHERE student_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 8. Delete classes taught by test users
-    sqlx::query("DELETE FROM classes WHERE teacher_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 9. Delete user permission assignments
-    sqlx::query("DELETE FROM user_permissions WHERE user_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 10. Delete password reset tokens
-    sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-    
-    // 11. Finally, delete the test users themselves
-    sqlx::query("DELETE FROM users WHERE id = ANY($1)")
-        .bind(&ids)
-        .execute(pool)
-        .await?;
-
-    info!("Successfully cleaned up {} test users and their data", ids.len());
-    Ok(())
+    cleanup_test_data(pool).await
 }

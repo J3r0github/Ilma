@@ -1,0 +1,152 @@
+{
+  "version": "1.0",
+  "description": "Complete database state configuration for testing",
+  "rollback_on_shutdown": true,
+  "users": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "username": "admin_test",
+      "email": "admin@test.edu",
+      "password": "admin123",
+      "role": "principal",
+      "is_superuser": true,
+      "public_key": "TEST_ADMIN_PUBLIC_KEY"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "username": "teacher_test",
+      "email": "teacher@test.edu",
+      "password": "teacher123",
+      "role": "teacher",
+      "is_superuser": false,
+      "public_key": "TEST_TEACHER_PUBLIC_KEY"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "username": "student_test_1",
+      "email": "student1@example.com",
+      "password": "student123",
+      "role": "student",
+      "is_superuser": false,
+      "public_key": "TEST_STUDENT1_PUBLIC_KEY"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "username": "student_test_2",
+      "email": "student2@test.edu",
+      "password": "student123",
+      "role": "student",
+      "is_superuser": false,
+      "public_key": "TEST_STUDENT2_PUBLIC_KEY"
+    }
+  ],
+  "classes": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440000",
+      "name": "Test Math Class",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "students": [
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003"
+      ]
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "name": "Test English Class",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "students": ["550e8400-e29b-41d4-a716-446655440002"]
+    }
+  ],
+  "grades": [
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440000",
+      "student_id": "550e8400-e29b-41d4-a716-446655440002",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "grade": "A"
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440001",
+      "student_id": "550e8400-e29b-41d4-a716-446655440003",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "grade": "B+"
+    }
+  ],
+  "attendance": [
+    {
+      "id": "880e8400-e29b-41d4-a716-446655440000",
+      "student_id": "550e8400-e29b-41d4-a716-446655440002",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "status": "present",
+      "recorded_by": "550e8400-e29b-41d4-a716-446655440001"
+    },
+    {
+      "id": "880e8400-e29b-41d4-a716-446655440001",
+      "student_id": "550e8400-e29b-41d4-a716-446655440003",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "status": "late",
+      "recorded_by": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ],
+  "schedule_events": [
+    {
+      "id": "990e8400-e29b-41d4-a716-446655440000",
+      "title": "Test Math Lesson",
+      "description": "Introduction to algebra",
+      "start_time": "2025-01-15T10:00:00Z",
+      "end_time": "2025-01-15T11:00:00Z",
+      "date": "2025-01-15",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001"
+    },
+    {
+      "id": "990e8400-e29b-41d4-a716-446655440001",
+      "title": "Test English Lesson",
+      "description": "Reading comprehension",
+      "start_time": "2025-01-15T14:00:00Z",
+      "end_time": "2025-01-15T15:00:00Z",
+      "date": "2025-01-15",
+      "class_id": "660e8400-e29b-41d4-a716-446655440001",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ],
+  "messages": [
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440000",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440001",
+      "ciphertext": "encrypted_test_message_1",
+      "encrypted_keys": [
+        {
+          "recipient_id": "550e8400-e29b-41d4-a716-446655440002",
+          "encrypted_key": "encrypted_key_for_student1"
+        },
+        {
+          "recipient_id": "550e8400-e29b-41d4-a716-446655440003",
+          "encrypted_key": "encrypted_key_for_student2"
+        }
+      ]
+    }
+  ],
+  "threads": [
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "participants": [
+        "550e8400-e29b-41d4-a716-446655440001",
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003"
+      ]
+    }
+  ],
+  "permissions": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "permission_ids": [1, 2, 3, 4, 5]
+    },
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440001",
+      "permission_ids": [2, 3, 4]
+    }
+  ]
+}

@@ -6,7 +6,7 @@ use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
-use crate::models::{AssignGradeRequest, UserRole, Grade};
+use crate::models::{AssignGradeRequest, UserRole, Grade, UpdateGradeRequest};
 
 #[utoipa::path(
     post,
@@ -230,4 +230,318 @@ pub async fn get_grades(
         })?;
 
     Ok(HttpResponse::Ok().json(grades))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/grades/student/{student_id}",
+    tag = "grades",
+    security(("bearerAuth" = [])),
+    params(
+        ("student_id" = Uuid, Path, description = "Student ID")
+    ),
+    responses(
+        (status = 200, description = "Student grades", body = [Grade]),
+        (status = 403, description = "Forbidden - insufficient permissions")
+    )
+)]
+pub async fn get_student_grades(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let student_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Check permissions: students can only see their own grades
+    match claims.role {
+        UserRole::Student => {
+            if user_id != student_id {
+                return Err(crate::errors::ApiError::AuthorizationError);
+            }
+        }
+        UserRole::Teacher => {
+            // Teachers can only see grades for students in their classes
+            let has_access = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(
+                    SELECT 1 FROM grades g 
+                    JOIN classes c ON g.class_id = c.id 
+                    WHERE g.student_id = $1 AND c.teacher_id = $2
+                )"
+            )
+            .bind(student_id)
+            .bind(user_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                crate::errors::ApiError::from(e)
+            })?;
+
+            if !has_access {
+                return Err(crate::errors::ApiError::AuthorizationError);
+            }
+        }
+        UserRole::Principal => {
+            // Principals can see all grades
+        }
+    }
+
+    let grades = sqlx::query_as::<_, Grade>(
+        "SELECT id, student_id, class_id, teacher_id, grade, assigned_at 
+         FROM grades WHERE student_id = $1 ORDER BY assigned_at DESC"
+    )
+    .bind(student_id)
+    .fetch_all(pool.as_ref())
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        crate::errors::ApiError::from(e)
+    })?;
+
+    Ok(HttpResponse::Ok().json(grades))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/grades/class/{class_id}",
+    tag = "grades",
+    security(("bearerAuth" = [])),
+    params(
+        ("class_id" = Uuid, Path, description = "Class ID")
+    ),
+    responses(
+        (status = 200, description = "Class grades", body = [Grade]),
+        (status = 403, description = "Forbidden - insufficient permissions")
+    )
+)]
+pub async fn get_class_grades(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let class_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Check permissions
+    match claims.role {
+        UserRole::Student => {
+            // Students can only see their own grades in the class
+            let grades = sqlx::query_as::<_, Grade>(
+                "SELECT id, student_id, class_id, teacher_id, grade, assigned_at 
+                 FROM grades WHERE class_id = $1 AND student_id = $2 
+                 ORDER BY assigned_at DESC"
+            )
+            .bind(class_id)
+            .bind(user_id)
+            .fetch_all(pool.as_ref())
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                crate::errors::ApiError::from(e)
+            })?;
+
+            return Ok(HttpResponse::Ok().json(grades));
+        }
+        UserRole::Teacher => {
+            // Teachers can only see grades for their classes
+            let teaches_class = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM classes WHERE id = $1 AND teacher_id = $2)"
+            )
+            .bind(class_id)
+            .bind(user_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                crate::errors::ApiError::from(e)
+            })?;
+
+            if !teaches_class {
+                return Err(crate::errors::ApiError::AuthorizationError);
+            }
+        }
+        UserRole::Principal => {
+            // Principals can see all grades
+        }
+    }
+
+    let grades = sqlx::query_as::<_, Grade>(
+        "SELECT id, student_id, class_id, teacher_id, grade, assigned_at 
+         FROM grades WHERE class_id = $1 ORDER BY assigned_at DESC"
+    )
+    .bind(class_id)
+    .fetch_all(pool.as_ref())
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        crate::errors::ApiError::from(e)
+    })?;
+
+    Ok(HttpResponse::Ok().json(grades))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/grades/{id}",
+    tag = "grades",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Grade ID")
+    ),
+    request_body = UpdateGradeRequest,
+    responses(
+        (status = 200, description = "Grade updated successfully", body = Grade),
+        (status = 404, description = "Grade not found"),
+        (status = 403, description = "Forbidden - only teachers can update grades")
+    )
+)]
+pub async fn update_grade(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+    grade_req: web::Json<UpdateGradeRequest>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let grade_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Only teachers and principals can update grades
+    if !matches!(claims.role, UserRole::Teacher | UserRole::Principal) {
+        return Err(crate::errors::ApiError::AuthorizationError);
+    }
+
+    // Check if the grade exists and if the teacher has permission to update it
+    if matches!(claims.role, UserRole::Teacher) {
+        let can_update = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM grades g 
+                JOIN classes c ON g.class_id = c.id 
+                WHERE g.id = $1 AND c.teacher_id = $2
+            )"
+        )
+        .bind(grade_id)
+        .bind(user_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+        if !can_update {
+            return Err(crate::errors::ApiError::AuthorizationError);
+        }
+    }
+
+    let updated_grade = sqlx::query_as::<_, Grade>(
+        "UPDATE grades SET grade = $2 WHERE id = $1 
+         RETURNING id, student_id, class_id, teacher_id, grade, assigned_at"
+    )
+    .bind(grade_id)
+    .bind(&grade_req.grade)
+    .fetch_optional(pool.as_ref())
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        crate::errors::ApiError::from(e)
+    })?;
+
+    match updated_grade {
+        Some(grade) => Ok(HttpResponse::Ok().json(grade)),
+        None => Ok(HttpResponse::NotFound().json(json!({"error": {"code": "GRADE_NOT_FOUND", "message": "Grade not found"}}))),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/grades/{id}",
+    tag = "grades",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Grade ID")
+    ),
+    responses(
+        (status = 204, description = "Grade deleted successfully"),
+        (status = 404, description = "Grade not found"),
+        (status = 403, description = "Forbidden - only teachers can delete grades")
+    )
+)]
+pub async fn delete_grade(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let grade_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Only teachers and principals can delete grades
+    if !matches!(claims.role, UserRole::Teacher | UserRole::Principal) {
+        return Err(crate::errors::ApiError::AuthorizationError);
+    }
+
+    // Check if the grade exists and if the teacher has permission to delete it
+    if matches!(claims.role, UserRole::Teacher) {
+        let can_delete = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM grades g 
+                JOIN classes c ON g.class_id = c.id 
+                WHERE g.id = $1 AND c.teacher_id = $2
+            )"
+        )
+        .bind(grade_id)
+        .bind(user_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+        if !can_delete {
+            return Err(crate::errors::ApiError::AuthorizationError);
+        }
+    }
+
+    let result = sqlx::query("DELETE FROM grades WHERE id = $1")
+        .bind(grade_id)
+        .execute(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+    if result.rows_affected() == 0 {
+        Ok(HttpResponse::NotFound().json(json!({"error": {"code": "GRADE_NOT_FOUND", "message": "Grade not found"}})))
+    } else {
+        Ok(HttpResponse::NoContent().finish())
+    }
 }

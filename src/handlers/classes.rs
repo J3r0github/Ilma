@@ -6,7 +6,7 @@ use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
-use crate::models::{Class, CreateClassRequest, AddStudentRequest, UserRole, User};
+use crate::models::{Class, CreateClassRequest, AddStudentRequest, UpdateClassRequest, UserRole, User};
 
 #[utoipa::path(
     get,
@@ -355,4 +355,229 @@ pub async fn remove_student_from_class(
     }
 
     Ok(HttpResponse::NoContent().finish())
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/classes/{id}",
+    tag = "classes",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Class ID")
+    ),
+    request_body = UpdateClassRequest,
+    responses(
+        (status = 200, description = "Class updated successfully", body = Class),
+        (status = 404, description = "Class not found"),
+        (status = 403, description = "Forbidden - only teachers can update their classes")
+    )
+)]
+pub async fn update_class(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+    class_req: web::Json<UpdateClassRequest>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let class_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Only teachers and principals can update classes
+    if !matches!(claims.role, UserRole::Teacher | UserRole::Principal) {
+        return Err(crate::errors::ApiError::AuthorizationError);
+    }
+
+    // Teachers can only update their own classes
+    if matches!(claims.role, UserRole::Teacher) {
+        let teaches_class = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM classes WHERE id = $1 AND teacher_id = $2)"
+        )
+        .bind(class_id)
+        .bind(user_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+        if !teaches_class {
+            return Err(crate::errors::ApiError::AuthorizationError);
+        }
+    }
+
+    let updated_class = sqlx::query_as::<_, Class>(
+        "UPDATE classes SET name = $2 WHERE id = $1 
+         RETURNING id, name, teacher_id, created_at"
+    )
+    .bind(class_id)
+    .bind(&class_req.name)
+    .fetch_optional(pool.as_ref())
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        crate::errors::ApiError::from(e)
+    })?;
+
+    match updated_class {
+        Some(class) => Ok(HttpResponse::Ok().json(class)),
+        None => Ok(HttpResponse::NotFound().json(json!({"error": {"code": "CLASS_NOT_FOUND", "message": "Class not found"}}))),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/classes/{id}",
+    tag = "classes",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Class ID")
+    ),
+    responses(
+        (status = 204, description = "Class deleted successfully"),
+        (status = 404, description = "Class not found"),
+        (status = 403, description = "Forbidden - only teachers can delete their classes")
+    )
+)]
+pub async fn delete_class(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let class_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Only teachers and principals can delete classes
+    if !matches!(claims.role, UserRole::Teacher | UserRole::Principal) {
+        return Err(crate::errors::ApiError::AuthorizationError);
+    }
+
+    // Teachers can only delete their own classes
+    if matches!(claims.role, UserRole::Teacher) {
+        let teaches_class = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM classes WHERE id = $1 AND teacher_id = $2)"
+        )
+        .bind(class_id)
+        .bind(user_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+        if !teaches_class {
+            return Err(crate::errors::ApiError::AuthorizationError);
+        }
+    }
+
+    let result = sqlx::query("DELETE FROM classes WHERE id = $1")
+        .bind(class_id)
+        .execute(pool.as_ref())
+        .await
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::from(e)
+        })?;
+
+    if result.rows_affected() == 0 {
+        Ok(HttpResponse::NotFound().json(json!({"error": {"code": "CLASS_NOT_FOUND", "message": "Class not found"}})))
+    } else {
+        Ok(HttpResponse::NoContent().finish())
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/classes/{id}/teacher",
+    tag = "classes",
+    security(("bearerAuth" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Class ID")
+    ),
+    responses(
+        (status = 200, description = "Teacher details", body = User),
+        (status = 404, description = "Class not found"),
+        (status = 403, description = "Forbidden - insufficient permissions")
+    )
+)]
+pub async fn get_class_teacher(
+    req: HttpRequest,
+    pool: web::Data<DbPool>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, crate::errors::ApiError> {
+    let claims = extract_claims(&req)
+        .ok_or(crate::errors::ApiError::AuthenticationError)?;
+
+    let class_id = path.into_inner();
+    let user_id = Uuid::parse_str(&claims.sub)
+        .map_err(|e| {
+            sentry::capture_error(&e);
+            crate::errors::ApiError::ValidationError("Invalid user ID format".to_string())
+        })?;
+
+    // Check if user has access to this class
+    let has_access = match claims.role {
+        UserRole::Student => {
+            // Students can see teacher details for classes they're enrolled in
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM class_students WHERE class_id = $1 AND student_id = $2)"
+            )
+            .bind(class_id)
+            .bind(user_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .map_err(|e| {
+                sentry::capture_error(&e);
+                crate::errors::ApiError::from(e)
+            })?
+        }
+        UserRole::Teacher => {
+            // Teachers can see all teacher details
+            true
+        }
+        UserRole::Principal => {
+            // Principals can see all teacher details
+            true
+        }
+    };
+
+    if !has_access {
+        return Err(crate::errors::ApiError::AuthorizationError);
+    }
+
+    let teacher = sqlx::query_as::<_, User>(
+        "SELECT u.id, u.email, u.password_hash, u.role, u.is_superuser, u.public_key, u.recovery_key, 
+         u.encrypted_private_key_blob, u.first_names, u.chosen_name, u.last_name, u.name_short, 
+         u.birthday, u.ssn, u.learner_number, u.person_oid, u.avatar_url, u.phone, u.address, 
+         u.enrollment_date, u.graduation_date, u.created_at, u.updated_at
+         FROM users u 
+         JOIN classes c ON u.id = c.teacher_id 
+         WHERE c.id = $1"
+    )
+    .bind(class_id)
+    .fetch_optional(pool.as_ref())
+    .await
+    .map_err(|e| {
+        sentry::capture_error(&e);
+        crate::errors::ApiError::from(e)
+    })?;
+
+    match teacher {
+        Some(teacher) => Ok(HttpResponse::Ok().json(teacher)),
+        None => Ok(HttpResponse::NotFound().json(json!({"error": {"code": "CLASS_NOT_FOUND", "message": "Class not found"}}))),
+    }
 }

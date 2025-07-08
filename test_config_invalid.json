@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "description": "Invalid test configuration with broken references",
+  "rollback_on_shutdown": true,
+  "users": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "username": "test_user",
+      "email": "test@example.com",
+      "password": "test_password",
+      "role": "student",
+      "is_superuser": false,
+      "public_key": "TEST_PUBLIC_KEY"
+    }
+  ],
+  "classes": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "name": "Invalid Class",
+      "teacher_id": "99999999-9999-9999-9999-999999999999",
+      "students": ["22222222-2222-2222-2222-222222222222"]
+    }
+  ],
+  "grades": [],
+  "attendance": [],
+  "schedule_events": [],
+  "messages": [],
+  "threads": [],
+  "permissions": []
+}

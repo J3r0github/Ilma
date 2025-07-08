@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "description": "Minimal test configuration for error testing",
+  "rollback_on_shutdown": true,
+  "users": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "username": "minimal_user",
+      "email": "minimal@example.com",
+      "password": "minimal_password",
+      "role": "student",
+      "is_superuser": false,
+      "public_key": "MINIMAL_PUBLIC_KEY"
+    }
+  ],
+  "classes": [],
+  "grades": [],
+  "attendance": [],
+  "schedule_events": [],
+  "messages": [],
+  "threads": [],
+  "permissions": []
+}

@@ -4,7 +4,7 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, sqlx::Type)]
 #[sqlx(type_name = "user_role", rename_all = "lowercase")]
 pub enum UserRole {
     #[serde(rename = "student")]
@@ -18,7 +18,6 @@ pub enum UserRole {
 #[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct User {
     pub id: Uuid,
-    pub username: String,
     pub email: String,
     pub role: UserRole,
     pub is_superuser: bool,
@@ -29,6 +28,26 @@ pub struct User {
     pub recovery_key: Option<String>,
     #[serde(skip)]
     pub encrypted_private_key_blob: Option<String>,
+    
+    // Name fields for students
+    pub first_names: Option<String>,
+    pub chosen_name: Option<String>,
+    pub last_name: Option<String>,
+    
+    // Teacher-specific fields
+    pub name_short: Option<String>,
+    
+    // Personal information
+    pub birthday: Option<chrono::NaiveDate>,
+    pub ssn: Option<String>,
+    pub learner_number: Option<String>,
+    pub person_oid: Option<String>,
+    pub avatar_url: Option<String>,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub enrollment_date: Option<chrono::NaiveDate>,
+    pub graduation_date: Option<chrono::NaiveDate>,
+    
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -69,7 +88,7 @@ pub struct ThreadPreview {
     pub last_message_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EncryptedKey {
     pub recipient_id: Uuid,
     pub encrypted_key: String,
@@ -153,7 +172,7 @@ pub struct ResetPasswordRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SetRecoveryKeyRequest {
-    pub username: String,
+    pub email: String,
     pub recovery_key: String,
 }
 
@@ -165,11 +184,35 @@ pub struct LoginRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateUserRequest {
-    pub username: String,
     pub email: String,
     pub password: String,
     pub role: UserRole,
     pub public_key: String,
+    // Personal information fields
+    pub first_names: Option<String>,
+    pub chosen_name: Option<String>,
+    pub last_name: Option<String>,
+    pub name_short: Option<String>, // For teachers
+    pub birthday: Option<chrono::NaiveDate>,
+    pub ssn: Option<String>,
+    pub learner_number: Option<String>,
+    pub person_oid: Option<String>,
+    pub avatar_url: Option<String>,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub enrollment_date: Option<chrono::NaiveDate>, // For students only
+    pub graduation_date: Option<chrono::NaiveDate>, // For students only
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateUserRequest {
+    pub first_names: Option<String>,
+    pub chosen_name: Option<String>,
+    pub last_name: Option<String>,
+    pub name_short: Option<String>,
+    pub phone: Option<String>,
+    pub address: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -179,6 +222,11 @@ pub struct AssignPermissionsRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateClassRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateClassRequest {
     pub name: String,
 }
 
@@ -195,9 +243,19 @@ pub struct AssignGradeRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateGradeRequest {
+    pub grade: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RecordAttendanceRequest {
     pub student_id: Uuid,
     pub class_id: Uuid,
+    pub status: AttendanceStatus,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateAttendanceRequest {
     pub status: AttendanceStatus,
 }
 
@@ -216,6 +274,15 @@ pub struct CreateScheduleEventRequest {
     pub end_time: DateTime<Utc>,
     pub date: chrono::NaiveDate,
     pub class_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateScheduleEventRequest {
+    pub title: String,
+    pub description: Option<String>,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub date: chrono::NaiveDate,
 }
 
 // Response DTOs
@@ -275,7 +342,7 @@ pub struct MessagePaginationQuery {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UserSearchParams {
-    pub username: Option<String>,
+    pub name: Option<String>, // Search by any name field (first_names, chosen_name, last_name, name_short)
     pub email: Option<String>,
     pub role: Option<UserRole>,
 }

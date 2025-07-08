@@ -14,6 +14,7 @@ use std::pin::Pin;
 use futures::Future;
 use std::env;
 use sentry;
+use log::debug;
 
 // Rate limit configuration for a specific endpoint
 #[derive(Clone)]
@@ -211,6 +212,7 @@ where
 
             // Check rate limit (with test user consideration)
             if !rate_limiter.check_rate_limit_with_test_user(&client_ip, &method, &path, is_test_user) {
+                debug!("Rate limit exceeded for {} {} from {}", method, path, client_ip);
                 sentry::capture_message(
                     &format!("Rate limit exceeded for {} {} from {}", method, path, client_ip),
                     sentry::Level::Warning
@@ -223,6 +225,8 @@ where
                     }));
                 let (http_req, _) = req.into_parts();
                 return Ok(ServiceResponse::new(http_req, response));
+            } else {
+                debug!("Rate limit check passed for {} {} from {} (test_user: {})", method, path, client_ip, is_test_user);
             }
 
             // Continue with the request
@@ -267,10 +271,12 @@ pub async fn jwt_middleware(
     // Verify JWT token
     match verify_jwt(token) {
         Ok(claims) => {
+            debug!("JWT token validated for user: {}", claims.sub);
             req.extensions_mut().insert(claims);
             Ok(req)
         }
         Err(_) => {
+            debug!("Invalid JWT token in middleware");
             sentry::capture_message("Invalid JWT token in middleware", sentry::Level::Warning);
             Err((actix_web::error::ErrorUnauthorized("Invalid token"), req))
         }

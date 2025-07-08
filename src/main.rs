@@ -1,11 +1,15 @@
+// Main entry point for the Ilma API server
+// (C) 2025 Jero Lampila, the Interactive Learning Management Application (Ilma) project.
+#![forbid(unsafe_code)]
 use actix_web::{middleware::Logger, web, App, HttpServer, middleware::DefaultHeaders};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use actix_cors::Cors;
+use actix_web::middleware::Compress;
 use dotenvy::dotenv;
 use std::env;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use log::{info, error, warn};
+use log::{info, error, warn, Level};
 use std::process;
 use std::sync::Arc;
 use sentry;
@@ -22,6 +26,9 @@ mod auth;
 mod db;
 mod middleware;
 mod errors;
+mod test_config;
+mod configloader;
+mod utils;
 
 use models::*;
 
@@ -43,37 +50,55 @@ use models::*;
         handlers::users::get_me,
         handlers::users::create_user,
         handlers::users::list_users,
+        handlers::users::get_user,
+        handlers::users::update_user,
+        handlers::users::delete_user,
+        handlers::users::search_users,
         handlers::users::get_user_public_key,
         handlers::users::get_recovery_key,
         handlers::users::set_recovery_key,
-        handlers::users::get_user_public_key_by_username,
+        handlers::users::get_user_public_key_by_email,
         handlers::permissions::list_permissions,
         handlers::permissions::list_permission_sets,
         handlers::permissions::get_user_permissions,
         handlers::permissions::assign_user_permissions,
         handlers::classes::list_classes,
         handlers::classes::create_class,
+        handlers::classes::update_class,
+        handlers::classes::delete_class,
         handlers::classes::add_student_to_class,
         handlers::classes::get_class_students,
         handlers::classes::remove_student_from_class,
+        handlers::classes::get_class_teacher,
         handlers::grades::assign_grade,
         handlers::grades::get_grades,
+        handlers::grades::get_student_grades,
+        handlers::grades::get_class_grades,
+        handlers::grades::update_grade,
+        handlers::grades::delete_grade,
         handlers::attendance::record_attendance,
         handlers::attendance::get_attendance,
+        handlers::attendance::get_student_attendance,
+        handlers::attendance::get_class_attendance,
+        handlers::attendance::get_class_attendance_by_date,
+        handlers::attendance::update_attendance,
+        handlers::attendance::delete_attendance,
         handlers::messages::list_threads,
         handlers::messages::send_message,
         handlers::messages::get_thread_messages,
         handlers::schedule::get_schedule,
         handlers::schedule::create_schedule_event,
+        handlers::schedule::update_schedule_event,
+        handlers::schedule::delete_schedule_event,
     ),
     components(
         schemas(
             User, UserRole, Permission, PermissionSet, Class, Thread, 
             ThreadPreview, Message, EncryptedKey, Grade, Attendance, AttendanceStatus,
-            ScheduleEvent, LoginRequest, CreateUserRequest, PasswordResetRequest, ResetPasswordRequest, 
-            SetRecoveryKeyRequest, AssignPermissionsRequest, CreateClassRequest, 
-            AddStudentRequest, AssignGradeRequest, RecordAttendanceRequest, 
-            SendMessageRequest, CreateScheduleEventRequest, LoginResponse, RecoveryKeyResponse, PublicKeyResponse, 
+            ScheduleEvent, LoginRequest, CreateUserRequest, UpdateUserRequest, PasswordResetRequest, ResetPasswordRequest, 
+            SetRecoveryKeyRequest, AssignPermissionsRequest, CreateClassRequest, UpdateClassRequest,
+            AddStudentRequest, AssignGradeRequest, UpdateGradeRequest, RecordAttendanceRequest, UpdateAttendanceRequest,
+            SendMessageRequest, CreateScheduleEventRequest, UpdateScheduleEventRequest, LoginResponse, RecoveryKeyResponse, PublicKeyResponse, 
             PasswordResetToken, ErrorResponse, PaginationQuery, MessagePaginationQuery,
             UserSearchParams, GradeSearchParams, AttendanceSearchParams, ScheduleSearchParams
         )
@@ -105,7 +130,13 @@ async fn main() -> std::io::Result<()> {
             ..Default::default()
         }
     ));
-    env_logger::init();
+    
+    // Configure logging with DEBUG level for actix_web middleware and auth
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .filter_module("actix_web::middleware::logger", log::LevelFilter::Debug)
+        .filter_module("ilma::auth", log::LevelFilter::Debug)
+        .init();
 
     let database_url = env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
@@ -120,10 +151,10 @@ async fn main() -> std::io::Result<()> {
         process::exit(1);
     }
 
-    // Create test users if in testing mode
-    if let Err(e) = auth::create_test_users(&pool).await {
-        error!("Failed to create test users: {:?}", e);
-        sentry::capture_message(&format!("Failed to create test users: {:?}", e), sentry::Level::Error);
+    // Create test data if in testing mode
+    if let Err(e) = ilma::configloader::create_test_data_from_config(&pool).await {
+        error!("Failed to create test data: {:?}", e);
+        sentry::capture_message(&format!("Failed to create test data: {:?}", e), sentry::Level::Error);
         process::exit(1);
     }
 
@@ -190,8 +221,7 @@ async fn main() -> std::io::Result<()> {
     // Create server with shutdown handling
     let server = HttpServer::new(move || {
         // Configure CORS middleware
-        let cors = Cors::default()
-            .allowed_origin(&cors_origins)
+        let mut cors = Cors::default()
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
             .allowed_headers(vec![
                 "Authorization",
@@ -202,11 +232,20 @@ async fn main() -> std::io::Result<()> {
             ])
             .supports_credentials()
             .max_age(3600);
+        
+        // Add each origin separately
+        for origin in cors_origins.split(',') {
+            let origin = origin.trim();
+            if !origin.is_empty() {
+                cors = cors.allowed_origin(origin);
+            }
+        }
 
-        App::new()
+        App::new() // See, this is how you're not supposed to do it... Holy boilerplate!
             .app_data(web::Data::new(pool.clone()))
-            .wrap(cors)
-            .wrap(Logger::default())
+            .wrap(cors) // apply CORS middleware, because it is required for API access
+            .wrap(Compress::default()) // Enable response compression with the best available algorithm
+            .wrap(Logger::new(r#"%a "%r" %s %b "%{Referer}i" "%{User-Agent}i" %T"#).log_level(Level::Debug)) //otherwise the default logger, but set to DEBUG level
             .wrap(middleware::RateLimitFactory::new(rate_limiter.clone()))
             .wrap(
                 DefaultHeaders::new()
@@ -225,28 +264,46 @@ async fn main() -> std::io::Result<()> {
                             .route("/me", web::get().to(handlers::users::get_me))
                             .route("/users", web::get().to(handlers::users::list_users))
                             .route("/users", web::post().to(handlers::users::create_user))
+                            .route("/users/{id}", web::get().to(handlers::users::get_user))
+                            .route("/users/{id}", web::put().to(handlers::users::update_user))
+                            .route("/users/{id}", web::delete().to(handlers::users::delete_user))
+                            .route("/users/search", web::get().to(handlers::users::search_users))
                             .route("/users/{id}/public_key", web::get().to(handlers::users::get_user_public_key))
-                            .route("/user/recovery-key/{username}", web::get().to(handlers::users::get_recovery_key))
+                            .route("/user/recovery-key/{email}", web::get().to(handlers::users::get_recovery_key))
                             .route("/user/recovery-key", web::post().to(handlers::users::set_recovery_key))
-                            .route("/user/public_key/{username}", web::get().to(handlers::users::get_user_public_key_by_username))
+                            .route("/user/public_key/{email}", web::get().to(handlers::users::get_user_public_key_by_email))
                             .route("/permissions", web::get().to(handlers::permissions::list_permissions))
                             .route("/permission-sets", web::get().to(handlers::permissions::list_permission_sets))
                             .route("/users/{id}/permissions", web::get().to(handlers::permissions::get_user_permissions))
                             .route("/users/{id}/permissions", web::post().to(handlers::permissions::assign_user_permissions))
                             .route("/classes", web::get().to(handlers::classes::list_classes))
                             .route("/classes", web::post().to(handlers::classes::create_class))
+                            .route("/classes/{id}", web::put().to(handlers::classes::update_class))
+                            .route("/classes/{id}", web::delete().to(handlers::classes::delete_class))
                             .route("/classes/{id}/students", web::post().to(handlers::classes::add_student_to_class))
                             .route("/classes/{id}/students", web::get().to(handlers::classes::get_class_students))
                             .route("/classes/{id}/students/{student_id}", web::delete().to(handlers::classes::remove_student_from_class))
+                            .route("/classes/{id}/teacher", web::get().to(handlers::classes::get_class_teacher))
                             .route("/grades", web::post().to(handlers::grades::assign_grade))
                             .route("/grades", web::get().to(handlers::grades::get_grades))
+                            .route("/grades/student/{student_id}", web::get().to(handlers::grades::get_student_grades))
+                            .route("/grades/class/{class_id}", web::get().to(handlers::grades::get_class_grades))
+                            .route("/grades/{id}", web::put().to(handlers::grades::update_grade))
+                            .route("/grades/{id}", web::delete().to(handlers::grades::delete_grade))
                             .route("/attendance", web::post().to(handlers::attendance::record_attendance))
                             .route("/attendance", web::get().to(handlers::attendance::get_attendance))
+                            .route("/attendance/student/{student_id}", web::get().to(handlers::attendance::get_student_attendance))
+                            .route("/attendance/class/{class_id}", web::get().to(handlers::attendance::get_class_attendance))
+                            .route("/attendance/class/{class_id}/date/{date}", web::get().to(handlers::attendance::get_class_attendance_by_date))
+                            .route("/attendance/{id}", web::put().to(handlers::attendance::update_attendance))
+                            .route("/attendance/{id}", web::delete().to(handlers::attendance::delete_attendance))
                             .route("/messages/threads", web::get().to(handlers::messages::list_threads))
                             .route("/messages", web::post().to(handlers::messages::send_message))
                             .route("/messages/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
                             .route("/schedule", web::get().to(handlers::schedule::get_schedule))
                             .route("/schedule", web::post().to(handlers::schedule::create_schedule_event))
+                            .route("/schedule/events/{id}", web::put().to(handlers::schedule::update_schedule_event))
+                            .route("/schedule/events/{id}", web::delete().to(handlers::schedule::delete_schedule_event))
                     )
             )
             .service(
@@ -271,12 +328,12 @@ async fn main() -> std::io::Result<()> {
             for sig in signals.forever() {
                 match sig {
                     SIGINT | SIGTERM | SIGQUIT => {
-                        info!("Shutdown signal ({}) received, cleaning up test users...", sig);
+                        info!("Shutdown signal ({}) received, cleaning up test data...", sig);
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {
-                            if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
-                                error!("Error cleaning up test users: {:?}", e);
-                                sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
+                            if let Err(e) = ilma::configloader::cleanup_test_data(&pool_for_cleanup).await {
+                                error!("Error cleaning up test data: {:?}", e);
+                                sentry::capture_message(&format!("Error cleaning up test data: {:?}", e), sentry::Level::Error);
                             }
                             server_handle.stop(true).await;
                         });
@@ -300,10 +357,10 @@ async fn main() -> std::io::Result<()> {
                 return;
             }
             
-            info!("Ctrl+C received, cleaning up test users...");
-            if let Err(e) = auth::cleanup_test_users(&pool_for_cleanup).await {
-                error!("Error cleaning up test users: {:?}", e);
-                sentry::capture_message(&format!("Error cleaning up test users: {:?}", e), sentry::Level::Error);
+            info!("Ctrl+C received, cleaning up test data...");
+            if let Err(e) = ilma::configloader::cleanup_test_data(&pool_for_cleanup).await {
+                error!("Error cleaning up test data: {:?}", e);
+                sentry::capture_message(&format!("Error cleaning up test data: {:?}", e), sentry::Level::Error);
             }
             server_handle.stop(true).await;
         })
@@ -335,9 +392,9 @@ fn user_routes() -> actix_web::Scope {
         .route("/users", web::get().to(handlers::users::list_users))
         .route("/users", web::post().to(handlers::users::create_user))
         .route("/users/{id}/public_key", web::get().to(handlers::users::get_user_public_key))
-        .route("/user/recovery-key/{username}", web::get().to(handlers::users::get_recovery_key))
+        .route("/user/recovery-key/{email}", web::get().to(handlers::users::get_recovery_key))
         .route("/user/set-recovery-key", web::post().to(handlers::users::set_recovery_key))
-        .route("/user/public-key/{username}", web::get().to(handlers::users::get_user_public_key_by_username))
+        .route("/user/public-key/{email}", web::get().to(handlers::users::get_user_public_key_by_email))
 }
 
 fn permission_routes() -> actix_web::Scope {

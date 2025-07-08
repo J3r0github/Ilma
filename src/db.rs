@@ -66,6 +66,19 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
             public_key TEXT NOT NULL,
             recovery_key TEXT,
             encrypted_private_key_blob TEXT,
+            first_names VARCHAR(255),
+            chosen_name VARCHAR(255),
+            last_name VARCHAR(255),
+            name_short VARCHAR(50),
+            birthday DATE,
+            ssn VARCHAR(20),
+            learner_number VARCHAR(100),
+            person_oid VARCHAR(100),
+            avatar_url TEXT,
+            phone VARCHAR(50),
+            address TEXT,
+            enrollment_date DATE,
+            graduation_date DATE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
@@ -73,9 +86,22 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
-    // Add username column if it doesn't exist (for compatibility with existing databases)
+    // Add new fields to existing users table if they don't exist
     sqlx::query(r#"
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(50);
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS first_names VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS chosen_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS last_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS name_short VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS birthday DATE,
+        ADD COLUMN IF NOT EXISTS ssn VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS learner_number VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS person_oid VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS avatar_url TEXT,
+        ADD COLUMN IF NOT EXISTS phone VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS address TEXT,
+        ADD COLUMN IF NOT EXISTS enrollment_date DATE,
+        ADD COLUMN IF NOT EXISTS graduation_date DATE;
     "#)
     .execute(pool)
     .await?;
@@ -94,17 +120,23 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
-    // Create unique constraint on username if it doesn't exist
+    // Drop username column and its constraint if they exist (removing deprecated field)
     sqlx::query(r#"
         DO $$ BEGIN
-            IF NOT EXISTS (
+            IF EXISTS (
                 SELECT 1 FROM information_schema.table_constraints 
                 WHERE constraint_name = 'users_username_key' 
                 AND table_name = 'users'
             ) THEN
-                ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username);
+                ALTER TABLE users DROP CONSTRAINT users_username_key;
             END IF;
         END $$;
+    "#)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(r#"
+        ALTER TABLE users DROP COLUMN IF EXISTS username;
     "#)
     .execute(pool)
     .await?;

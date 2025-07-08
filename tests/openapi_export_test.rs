@@ -25,7 +25,7 @@ use utoipa::OpenApi;
         ilma::handlers::users::get_user_public_key,
         ilma::handlers::users::get_recovery_key,
         ilma::handlers::users::set_recovery_key,
-        ilma::handlers::users::get_user_public_key_by_username,
+        ilma::handlers::users::get_user_public_key_by_email,
         ilma::handlers::permissions::list_permissions,
         ilma::handlers::permissions::list_permission_sets,
         ilma::handlers::permissions::get_user_permissions,
