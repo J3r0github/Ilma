@@ -15,6 +15,7 @@ use futures::Future;
 use std::env;
 use sentry;
 use log::debug;
+use tokio::time::interval;
 
 // Rate limit configuration for a specific endpoint
 #[derive(Clone)]
@@ -41,11 +42,15 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(max_requests: usize, window_seconds: u64) -> Self {
-        Self {
+        let rate_limiter = Self {
             requests: Arc::new(DashMap::new()),
             global_config: RateLimitConfig::new(max_requests, window_seconds),
             endpoint_configs: HashMap::new(),
-        }
+        };
+        
+        // Start cleanup task
+        rate_limiter.start_cleanup_task();
+        rate_limiter
     }
 
     pub fn with_endpoint_config(mut self, endpoint: String, config: RateLimitConfig) -> Self {
@@ -155,6 +160,30 @@ impl RateLimiter {
         }
 
         false
+    }
+    
+    /// Start a background task to clean up expired entries periodically
+    fn start_cleanup_task(&self) {
+        let requests = self.requests.clone();
+        let cleanup_interval = Duration::from_secs(300); // Clean up every 5 minutes
+        
+        tokio::spawn(async move {
+            let mut interval = interval(cleanup_interval);
+            loop {
+                interval.tick().await;
+                let now = Instant::now();
+                
+                // Remove entries older than 1 hour (well beyond any rate limit window)
+                let cutoff = now - Duration::from_secs(3600);
+                
+                requests.retain(|_key, timestamps| {
+                    timestamps.retain(|&timestamp| timestamp > cutoff);
+                    !timestamps.is_empty()
+                });
+                
+                debug!("Rate limiter cleanup completed, {} active keys", requests.len());
+            }
+        });
     }
 }
 

@@ -60,7 +60,7 @@ pub async fn record_attendance(
     }
 
     // Check if student is enrolled in the class
-    let is_enrolled: Option<()> = sqlx::query_scalar(
+    let is_enrolled: Option<i32> = sqlx::query_scalar(
         "SELECT 1 FROM class_students WHERE class_id = $1 AND student_id = $2"
     )
     .bind(attendance_req.class_id)

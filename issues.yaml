@@ -1,0 +1,323 @@
+version: 0.1
+taxonomy: taxonomy.v0.1.yaml
+severity_rules: severity.v0.1.yaml
+generated: 2025-01-08
+auditor: GitHub Copilot Security Audit Agent
+project: Ilma School Management API
+
+issues:
+  - id: SEC.AUTH.001
+    title: Testing Mode Bypasses Authentication in Production
+    category: SEC
+    type: AUTH
+    specific: 001
+    severity:
+      impact: 9
+      exploitability: 8
+      likelihood: 6
+      score: 8
+    status: open
+    discovered_by: static_analysis
+    file: src/main.rs
+    line: 156
+    description: >
+      The application includes a TESTING_MODE environment variable that, when enabled, 
+      creates test users with hardcoded credentials and bypasses certain security controls. 
+      While clearly documented as development-only, there's risk of accidental production 
+      deployment with testing mode enabled, which would create backdoor accounts.
+    recommendation: >
+      Add runtime checks to prevent testing mode in production environments.
+      Consider checking for production indicators (HTTPS, domain names, etc.) and 
+      automatically disable testing mode with clear error messages.
+    references:
+      - https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration
+    tags: [authentication, testing, backdoor, misconfiguration]
+
+  - id: SEC.AUTH.002
+    title: Weak Password Reset Token Generation
+    category: SEC
+    type: AUTH
+    specific: 002
+    severity:
+      impact: 7
+      exploitability: 6
+      likelihood: 8
+      score: 7
+    status: open
+    discovered_by: static_analysis
+    file: src/auth.rs
+    line: 180
+    description: >
+      Password reset tokens are generated using basic alphanumeric characters 
+      via rand::distributions::Alphanumeric with only 64 characters length. 
+      While 64 characters provides reasonable entropy, the token generation
+      could be strengthened with cryptographically secure random generation.
+    recommendation: >
+      Use cryptographically secure random token generation with at least 
+      128 bits of entropy. Consider using base64url encoding of random bytes.
+    references:
+      - https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+    tags: [password-reset, token-generation, entropy]
+
+  - id: SEC.TIMING.003
+    title: Potential Timing Side-Channel in Login
+    category: SEC
+    type: TIMING
+    specific: 003
+    severity:
+      impact: 5
+      exploitability: 7
+      likelihood: 7
+      score: 6
+    status: open
+    discovered_by: static_analysis
+    file: src/auth.rs
+    line: 119
+    description: >
+      The login function first queries the database for a user, then performs 
+      password verification only if the user exists. This creates different 
+      response timing patterns for existing vs non-existing users, potentially 
+      allowing email enumeration through timing analysis.
+    recommendation: >
+      Perform password hashing operation even for non-existent users using a 
+      dummy hash to normalize timing. Use constant-time comparison techniques.
+    references:
+      - https://owasp.org/www-community/attacks/Timing_Attack
+      - https://cwe.mitre.org/data/definitions/208.html
+    tags: [timing-attack, side-channel, enumeration]
+
+  - id: PERF.MEM.004
+    title: Unbounded Rate Limiter Memory Growth
+    category: PERF
+    type: MEM
+    specific: 004
+    severity:
+      impact: 6
+      exploitability: 5
+      likelihood: 8
+      score: 6
+    status: open
+    discovered_by: static_analysis
+    file: src/middleware.rs
+    line: 84
+    description: >
+      The DashMap-based rate limiter stores request timestamps indefinitely 
+      without any cleanup mechanism for old entries. Over time, this will 
+      consume increasing amounts of memory, especially under high load or 
+      with many unique IP addresses.
+    recommendation: >
+      Implement periodic cleanup of expired entries or use a time-based 
+      eviction strategy. Consider using a more memory-efficient rate limiting
+      algorithm like token bucket or sliding window with fixed memory usage.
+    references: []
+    tags: [memory-leak, rate-limiting, performance]
+
+  - id: DATA.SCHEMA.005
+    title: Weak Input Validation on User Fields
+    category: DATA
+    type: SCHEMA
+    specific: 005
+    severity:
+      impact: 4
+      exploitability: 8
+      likelihood: 9
+      score: 7
+    status: open
+    discovered_by: static_analysis
+    file: src/handlers/users.rs
+    line: 125
+    description: >
+      Email validation only uses basic regex and length checks. Other user 
+      fields like phone, address, SSN have no validation. This could lead to 
+      data quality issues and potential injection attacks if data is used in 
+      other contexts without proper escaping.
+    recommendation: >
+      Implement comprehensive input validation for all user fields including
+      phone number format validation, address sanitization, and proper SSN
+      format checking. Use allowlisting approach for all inputs.
+    references:
+      - https://owasp.org/www-project-top-ten/2017/A1_2017-Injection
+    tags: [input-validation, data-quality, injection]
+
+  - id: SEC.INFO.006
+    title: Sensitive Data in Database Query Results
+    category: SEC
+    type: INFO
+    specific: 006
+    severity:
+      impact: 6
+      exploitability: 4
+      likelihood: 8
+      score: 6
+    status: open
+    discovered_by: static_analysis
+    file: src/handlers/users.rs
+    line: 27
+    description: >
+      User queries return sensitive fields like password_hash, SSN, and 
+      encrypted_private_key_blob in API responses. While password_hash has 
+      #[serde(skip)], other sensitive fields are exposed in JSON responses.
+    recommendation: >
+      Create separate DTO structs for API responses that exclude sensitive 
+      fields. Implement field-level access controls based on user roles and
+      relationships.
+    references:
+      - https://owasp.org/www-project-top-ten/2017/A3_2017-Sensitive_Data_Exposure
+    tags: [information-disclosure, sensitive-data, api-design]
+
+  - id: SEC.RACE.007
+    title: Race Condition in Password Reset Token Usage
+    category: SEC
+    type: RACE
+    specific: 007
+    severity:
+      impact: 5
+      exploitability: 6
+      likelihood: 5
+      score: 5
+    status: open
+    discovered_by: static_analysis
+    file: src/auth.rs
+    line: 238
+    description: >
+      The password reset process checks if a token is valid and unused, then 
+      updates the password and marks the token as used in separate queries. 
+      This creates a race condition window where the same token could be used 
+      multiple times concurrently.
+    recommendation: >
+      Use database transactions or implement atomic update operations to ensure
+      token validation and usage marking happen atomically.
+    references:
+      - https://cwe.mitre.org/data/definitions/367.html
+    tags: [race-condition, password-reset, concurrency]
+
+  - id: UX.ACCESS.008
+    title: Inconsistent Error Messages for Authentication
+    category: UX
+    type: ACCESS
+    specific: 008
+    severity:
+      impact: 3
+      exploitability: 2
+      likelihood: 10
+      score: 5
+    status: open
+    discovered_by: static_analysis
+    file: src/auth.rs
+    line: 132
+    description: >
+      Authentication errors return generic "Invalid credentials" messages 
+      without distinguishing between different failure reasons. While this 
+      prevents user enumeration, it provides poor user experience for 
+      legitimate users with account issues.
+    recommendation: >
+      Implement a balanced approach that provides helpful error messages for
+      legitimate users while preventing enumeration attacks. Consider rate
+      limiting specific error types or providing hints only after multiple
+      failed attempts.
+    references: []
+    tags: [user-experience, error-messages, authentication]
+
+  - id: DEV.DOCS.009
+    title: Missing Security Documentation for API Endpoints
+    category: DEV
+    type: DOCS
+    specific: 009
+    severity:
+      impact: 3
+      exploitability: 1
+      likelihood: 10
+      score: 5
+    status: open
+    discovered_by: static_analysis
+    file: src/handlers/
+    line: 1
+    description: >
+      API endpoints lack comprehensive security documentation describing
+      required permissions, rate limiting behavior, and security considerations.
+      This makes it difficult for developers to understand and properly
+      implement security controls.
+    recommendation: >
+      Add security-focused documentation to all API endpoints including
+      required roles, permissions, rate limits, and security considerations.
+      Update OpenAPI specifications with security requirements.
+    references: []
+    tags: [documentation, security-awareness, api-design]
+
+  - id: SEC.MISCONF.010
+    title: Hardcoded Sentry DSN in Source Code
+    category: SEC
+    type: MISCONF
+    specific: 010
+    severity:
+      impact: 4
+      exploitability: 3
+      likelihood: 10
+      score: 6
+    status: open
+    discovered_by: static_analysis
+    file: src/main.rs
+    line: 113
+    description: >
+      The Sentry DSN (Data Source Name) is hardcoded in the source code. 
+      This exposes the Sentry project configuration and could potentially 
+      allow unauthorized error report submissions or information disclosure
+      about the monitoring setup.
+    recommendation: >
+      Move the Sentry DSN to environment variables. Implement proper error
+      handling for missing Sentry configuration and consider disabling Sentry
+      in development environments.
+    references:
+      - https://owasp.org/www-project-top-ten/2017/A6_2017-Security_Misconfiguration
+    tags: [secrets-management, configuration, monitoring]
+
+  - id: PERF.CPU.011
+    title: Inefficient Database Query Patterns
+    category: PERF
+    type: CPU
+    specific: 011
+    severity:
+      impact: 4
+      exploitability: 1
+      likelihood: 8
+      score: 4
+    status: open
+    discovered_by: static_analysis
+    file: src/handlers/users.rs
+    line: 400
+    description: >
+      User listing and search functions use complex subqueries and multiple
+      database round trips for access control checks. This could lead to
+      performance issues under load, especially with large user bases.
+    recommendation: >
+      Optimize database queries using JOINs instead of subqueries where possible.
+      Implement query result caching for frequently accessed data. Consider
+      using database views for complex access control logic.
+    references: []
+    tags: [performance, database, query-optimization]
+
+  - id: DEV.TEST.012
+    title: Test Configuration Exposes Production Patterns
+    category: DEV
+    type: TEST
+    specific: 012
+    severity:
+      impact: 3
+      exploitability: 2
+      likelihood: 7
+      score: 4
+    status: open
+    discovered_by: static_analysis
+    file: src/configloader.rs
+    line: 20
+    description: >
+      Test configuration and test user creation logic is complex and mirrors
+      production patterns closely. This increases the risk of test code 
+      accidentally affecting production systems or test credentials being
+      used inappropriately.
+    recommendation: >
+      Simplify test user creation. Add explicit production environment detection
+      that prevents any test code execution. Consider using separate test
+      databases with different schemas.
+    references: []
+    tags: [testing, separation-of-concerns, environment-isolation]

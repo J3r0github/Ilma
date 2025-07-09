@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc, NaiveDate};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::models::{UserRole, AttendanceStatus, EncryptedKey};
+use crate::models::{UserRole, AttendanceStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestConfig {
@@ -21,14 +21,21 @@ pub struct TestConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestUser {
     pub id: Uuid,
-    pub username: String,
     pub email: String,
     pub password: String,
     pub role: UserRole,
     pub is_superuser: bool,
-    pub public_key: String,
-    pub recovery_key: Option<String>,
-    pub encrypted_private_key_blob: Option<String>,
+    
+    // Name fields for students
+    pub first_names: Option<String>,
+    pub chosen_name: Option<String>,
+    pub last_name: Option<String>,
+    
+    // Teacher-specific fields
+    pub name_short: Option<String>,
+    
+    // Note: Cryptographic keys (public_key, recovery_key, encrypted_private_key_blob) 
+    // are now auto-generated at runtime for better security and testing
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,8 +81,11 @@ pub struct TestMessage {
     pub id: Uuid,
     pub thread_id: Uuid,
     pub sender_id: Uuid,
-    pub ciphertext: String,
-    pub encrypted_keys: Vec<EncryptedKey>,
+    #[serde(default = "chrono::Utc::now")]
+    pub sent_at: DateTime<Utc>,
+    pub content: String, // Plain text content - will be encrypted automatically
+    
+    // Note: ciphertext and encrypted_keys are now auto-generated from content
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,11 +226,7 @@ impl TestConfig {
             if !user_ids.contains(&message.sender_id) {
                 return Err(format!("Message references non-existent sender ID: {}", message.sender_id));
             }
-            for encrypted_key in &message.encrypted_keys {
-                if !user_ids.contains(&encrypted_key.recipient_id) {
-                    return Err(format!("Message encrypted key references non-existent recipient ID: {}", encrypted_key.recipient_id));
-                }
-            }
+            // Note: encrypted_keys validation removed - keys are auto-generated based on thread participants
         }
 
         // Validate thread participants

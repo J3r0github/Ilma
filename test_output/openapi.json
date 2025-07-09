@@ -301,12 +301,14 @@
         "tags": [
           "messages"
         ],
+        "summary": "List all message threads for the authenticated user",
+        "description": "Returns a paginated list of thread previews showing the most recent message\nfrom each thread that the user participates in.",
         "operationId": "list_threads",
         "parameters": [
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of results",
+            "description": "Maximum number of results (default: 20)",
             "required": false,
             "schema": {
               "type": "integer",
@@ -316,7 +318,7 @@
           {
             "name": "offset",
             "in": "query",
-            "description": "Offset for pagination",
+            "description": "Offset for pagination (default: 0)",
             "required": false,
             "schema": {
               "type": "integer",
@@ -326,7 +328,7 @@
         ],
         "responses": {
           "200": {
-            "description": "List of threads",
+            "description": "List of thread previews for the authenticated user",
             "content": {
               "application/json": {
                 "schema": {
@@ -334,6 +336,36 @@
                   "items": {
                     "$ref": "#/components/schemas/ThreadPreview"
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid user ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -349,8 +381,11 @@
         "tags": [
           "messages"
         ],
+        "summary": "Send an encrypted message to specified participants",
+        "description": "Creates a new thread with the specified participants (including the sender)\nand sends an encrypted message. Each recipient gets their own encrypted key\nto decrypt the message content.",
         "operationId": "send_message",
         "requestBody": {
+          "description": "Message data including participants, encrypted content, and keys",
           "content": {
             "application/json": {
               "schema": {
@@ -362,7 +397,49 @@
         },
         "responses": {
           "201": {
-            "description": "Message sent, thread created if needed"
+            "description": "Message sent successfully, thread created if needed",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": {
+                  "message": "Message sent successfully",
+                  "message_id": "550e8400-e29b-41d4-a716-446655440001",
+                  "thread_id": "550e8400-e29b-41d4-a716-446655440000"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request data or non-existent participant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -377,21 +454,24 @@
         "tags": [
           "messages"
         ],
+        "summary": "Get messages from a specific thread",
+        "description": "Retrieves encrypted messages from a thread that the user participates in.\nMessages are returned with encrypted keys for each recipient. Supports\ncursor-based pagination using the 'before' parameter.",
         "operationId": "get_thread_messages",
         "parameters": [
           {
             "name": "thread_id",
             "in": "path",
-            "description": "Thread UUID",
+            "description": "Thread UUID to retrieve messages from",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           },
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of messages",
+            "description": "Maximum number of messages to retrieve (default: 20)",
             "required": false,
             "schema": {
               "type": "integer",
@@ -401,7 +481,7 @@
           {
             "name": "before",
             "in": "query",
-            "description": "Message ID to paginate before",
+            "description": "Message ID to paginate before (for cursor-based pagination)",
             "required": false,
             "schema": {
               "type": "string"
@@ -410,7 +490,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Messages list",
+            "description": "Messages from the specified thread with encrypted keys",
             "content": {
               "application/json": {
                 "schema": {
@@ -418,6 +498,46 @@
                   "items": {
                     "$ref": "#/components/schemas/Message"
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid thread ID or message ID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "User is not a participant in this thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -486,17 +606,17 @@
         ]
       }
     },
-    "/api/user/public-key/{username}": {
+    "/api/user/public-key/{email}": {
       "get": {
         "tags": [
           "users"
         ],
-        "operationId": "get_user_public_key_by_username",
+        "operationId": "get_user_public_key_by_email",
         "parameters": [
           {
-            "name": "username",
+            "name": "email",
             "in": "path",
-            "description": "Username",
+            "description": "User email",
             "required": true,
             "schema": {
               "type": "string"
@@ -528,7 +648,7 @@
         ]
       }
     },
-    "/api/user/recovery-key/{username}": {
+    "/api/user/recovery-key/{email}": {
       "get": {
         "tags": [
           "users"
@@ -536,9 +656,9 @@
         "operationId": "get_recovery_key",
         "parameters": [
           {
-            "name": "username",
+            "name": "email",
             "in": "path",
-            "description": "Username",
+            "description": "User email",
             "required": true,
             "schema": {
               "type": "string"
@@ -888,18 +1008,92 @@
       "CreateUserRequest": {
         "type": "object",
         "required": [
-          "username",
           "email",
           "password",
           "role",
           "public_key"
         ],
         "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "birthday": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "chosen_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "email": {
             "type": "string"
           },
+          "enrollment_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "first_names": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "graduation_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "last_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "learner_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name_short": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "password": {
             "type": "string"
+          },
+          "person_oid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "public_key": {
             "type": "string"
@@ -907,13 +1101,17 @@
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
-          "username": {
-            "type": "string"
+          "ssn": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "EncryptedKey": {
         "type": "object",
+        "description": "Encrypted key for a specific recipient of a message",
         "required": [
           "recipient_id",
           "encrypted_key"
@@ -1003,6 +1201,7 @@
       },
       "Message": {
         "type": "object",
+        "description": "A message in an encrypted conversation thread",
         "required": [
           "id",
           "thread_id",
@@ -1041,6 +1240,7 @@
       },
       "MessagePaginationQuery": {
         "type": "object",
+        "description": "Query parameters for message pagination using cursor-based pagination",
         "properties": {
           "before": {
             "type": [
@@ -1231,6 +1431,7 @@
       },
       "SendMessageRequest": {
         "type": "object",
+        "description": "Request to send an encrypted message to participants",
         "required": [
           "participant_ids",
           "ciphertext",
@@ -1258,14 +1459,14 @@
       "SetRecoveryKeyRequest": {
         "type": "object",
         "required": [
-          "username",
+          "email",
           "recovery_key"
         ],
         "properties": {
-          "recovery_key": {
+          "email": {
             "type": "string"
           },
-          "username": {
+          "recovery_key": {
             "type": "string"
           }
         }
@@ -1297,6 +1498,7 @@
       },
       "ThreadPreview": {
         "type": "object",
+        "description": "A preview of a message thread showing the latest message",
         "required": [
           "thread_id",
           "last_message_preview",
@@ -1320,7 +1522,6 @@
         "type": "object",
         "required": [
           "id",
-          "username",
           "email",
           "role",
           "is_superuser",
@@ -1329,12 +1530,57 @@
           "updated_at"
         ],
         "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatar_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "birthday": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "chosen_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
           },
           "email": {
             "type": "string"
+          },
+          "enrollment_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "first_names": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "graduation_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
           },
           "id": {
             "type": "string",
@@ -1343,18 +1589,51 @@
           "is_superuser": {
             "type": "boolean"
           },
+          "last_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "learner_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name_short": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "person_oid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "public_key": {
             "type": "string"
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
+          "ssn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
-          },
-          "username": {
-            "type": "string"
           }
         }
       },

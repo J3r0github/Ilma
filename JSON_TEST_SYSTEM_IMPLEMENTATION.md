@@ -65,7 +65,7 @@ Environment variables for the new system:
 Old approach:
 
 ```bash
-TEST_USERNAME=admin_test
+TEST_EMAIL=admin_test
 TEST_EMAIL=admin@example.com
 TEST_PASSWORD=password123
 ```
@@ -77,7 +77,7 @@ New approach:
   "users": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
-      "username": "admin_test",
+      "email": "admin_test",
       "email": "admin@example.com",
       "password": "password123",
       "role": "principal",

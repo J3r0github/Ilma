@@ -1,0 +1,154 @@
+{
+  "version": "1.0",
+  "description": "Simplified test configuration with auto-generated cryptographic keys",
+  "rollback_on_shutdown": true,
+  "users": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "admin@test.edu",
+      "password": "admin123",
+      "role": "principal",
+      "is_superuser": true,
+      "first_names": "Dr. Sarah",
+      "chosen_name": "Dr. Johnson",
+      "last_name": "Johnson",
+      "name_short": "DrJ"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "email": "teacher@test.edu",
+      "password": "teacher123",
+      "role": "teacher",
+      "is_superuser": false,
+      "first_names": "Emily",
+      "chosen_name": "Ms. Wilson",
+      "last_name": "Wilson",
+      "name_short": "WIL"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "email": "student1@example.com",
+      "password": "student123",
+      "role": "student",
+      "is_superuser": false,
+      "first_names": "Alex",
+      "chosen_name": "Alex",
+      "last_name": "Thompson"
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "email": "student2@test.edu",
+      "password": "student123",
+      "role": "student",
+      "is_superuser": false,
+      "first_names": "Jordan",
+      "chosen_name": "J",
+      "last_name": "Davis"
+    }
+  ],
+  "classes": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440000",
+      "name": "Test Math Class",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "students": [
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003"
+      ]
+    }
+  ],
+  "grades": [
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440000",
+      "student_id": "550e8400-e29b-41d4-a716-446655440002",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001",
+      "grade": "A"
+    }
+  ],
+  "attendance": [
+    {
+      "id": "880e8400-e29b-41d4-a716-446655440000",
+      "student_id": "550e8400-e29b-41d4-a716-446655440002",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "status": "present",
+      "recorded_by": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ],
+  "schedule_events": [
+    {
+      "id": "990e8400-e29b-41d4-a716-446655440000",
+      "title": "Math Lesson",
+      "description": "Basic algebra concepts",
+      "start_time": "2025-07-09T09:00:00Z",
+      "end_time": "2025-07-09T10:00:00Z",
+      "date": "2025-07-09",
+      "class_id": "660e8400-e29b-41d4-a716-446655440000",
+      "teacher_id": "550e8400-e29b-41d4-a716-446655440001"
+    }
+  ],
+  "threads": [
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "participants": [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "550e8400-e29b-41d4-a716-446655440001"
+      ]
+    },
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440001",
+      "participants": [
+        "550e8400-e29b-41d4-a716-446655440001",
+        "550e8400-e29b-41d4-a716-446655440002",
+        "550e8400-e29b-41d4-a716-446655440003"
+      ]
+    },
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440002",
+      "participants": [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "550e8400-e29b-41d4-a716-446655440002"
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440000",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440001",
+      "sent_at": "2025-07-08T09:30:00Z",
+      "content": "Hello Dr. Johnson, how are you today?"
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440001",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sent_at": "2025-07-08T10:15:00Z",
+      "content": "Hello Ms. Wilson! I'm doing well, thank you for asking."
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440002",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440001",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440001",
+      "sent_at": "2025-07-08T11:00:00Z",
+      "content": "Reminder: Math test tomorrow at 9 AM. Please review chapters 4-6."
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440003",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440002",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sent_at": "2025-07-08T14:30:00Z",
+      "content": "This is a test message for the group discussion."
+    }
+  ],
+  "permissions": [
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "permission_ids": [1, 2, 3, 4, 5]
+    },
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440001",
+      "permission_ids": [1, 2, 3]
+    }
+  ]
+}

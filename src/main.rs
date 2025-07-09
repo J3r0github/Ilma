@@ -94,7 +94,7 @@ use models::*;
     components(
         schemas(
             User, UserRole, Permission, PermissionSet, Class, Thread, 
-            ThreadPreview, Message, EncryptedKey, Grade, Attendance, AttendanceStatus,
+            ThreadPreview, Message, MessageEncryptedKey, EncryptedKey, Grade, Attendance, AttendanceStatus,
             ScheduleEvent, LoginRequest, CreateUserRequest, UpdateUserRequest, PasswordResetRequest, ResetPasswordRequest, 
             SetRecoveryKeyRequest, AssignPermissionsRequest, CreateClassRequest, UpdateClassRequest,
             AddStudentRequest, AssignGradeRequest, UpdateGradeRequest, RecordAttendanceRequest, UpdateAttendanceRequest,
@@ -121,15 +121,27 @@ struct ApiDoc;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
-    // Initialize Sentry before anything else
-    let _guard = sentry::init((
-        "https://3f9fcea9d74d52651fd4344b1507d852@o4509620732887040.ingest.de.sentry.io/4509622336749648",
-        sentry::ClientOptions {
-            release: sentry::release_name!(),
-            send_default_pii: true,
-            ..Default::default()
+    
+    // Initialize Sentry from environment variable
+    let _guard = if let Ok(sentry_dsn) = env::var("SENTRY_DSN") {
+        if !sentry_dsn.is_empty() {
+            info!("Initializing Sentry error tracking");
+            sentry::init((
+                sentry_dsn,
+                sentry::ClientOptions {
+                    release: sentry::release_name!(),
+                    send_default_pii: false, // Don't send PII by default
+                    ..Default::default()
+                }
+            ))
+        } else {
+            warn!("SENTRY_DSN is empty, error tracking disabled");
+            sentry::init(sentry::ClientOptions::default())
         }
-    ));
+    } else {
+        info!("SENTRY_DSN not configured, error tracking disabled");
+        sentry::init(sentry::ClientOptions::default())
+    };
     
     // Configure logging with DEBUG level for actix_web middleware and auth
     env_logger::Builder::from_default_env()
@@ -185,8 +197,20 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or(false);
     
     if testing_mode {
-        warn!("TESTING MODE IS ENABLED - This should only be used in development!");
-        warn!("Test users will be created at startup and cleaned up on shutdown.");
+        // Error if running in production environment
+        let is_production = env::var("RUST_ENV").unwrap_or_default() == "production" ||
+                           env::var("NODE_ENV").unwrap_or_default() == "production" ||
+                           bind_address.contains("0.0.0.0") ||
+                           !bind_address.starts_with("127.0.0.1") && !bind_address.starts_with("localhost");
+        
+        if is_production {
+            error!("DETECTED PRODUCTION ENVIRONMENT WITH TESTING_MODE=true");
+            error!("Set TESTING_MODE=false or remove the environment variable for production deployment!!");
+        }
+        
+        warn!("⚠️  TESTING MODE IS ENABLED - This should only be used in development!");
+        warn!("⚠️  Test users will be created at startup and cleaned up on shutdown.");
+        warn!("⚠️  NEVER deploy with TESTING_MODE=true in production!");
     }
 
     // Configure rate limiting
@@ -298,8 +322,8 @@ async fn main() -> std::io::Result<()> {
                             .route("/attendance/{id}", web::put().to(handlers::attendance::update_attendance))
                             .route("/attendance/{id}", web::delete().to(handlers::attendance::delete_attendance))
                             .route("/messages/threads", web::get().to(handlers::messages::list_threads))
-                            .route("/messages", web::post().to(handlers::messages::send_message))
-                            .route("/messages/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
+                            .route("/messages/threads", web::post().to(handlers::messages::send_message))
+                            .route("/messages/threads/{thread_id}", web::get().to(handlers::messages::get_thread_messages))
                             .route("/schedule", web::get().to(handlers::schedule::get_schedule))
                             .route("/schedule", web::post().to(handlers::schedule::create_schedule_event))
                             .route("/schedule/events/{id}", web::put().to(handlers::schedule::update_schedule_event))
@@ -328,14 +352,22 @@ async fn main() -> std::io::Result<()> {
             for sig in signals.forever() {
                 match sig {
                     SIGINT | SIGTERM | SIGQUIT => {
-                        info!("Shutdown signal ({}) received, cleaning up test data...", sig);
+                        info!("Shutdown signal ({}) received, stopping server and cleaning up test data...", sig);
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {
+                            // Stop the server first to prevent new requests
+                            server_handle.stop(true).await;
+                            
+                            // Wait a moment for active requests to finish
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            
+                            // Then cleanup test data
                             if let Err(e) = ilma::configloader::cleanup_test_data(&pool_for_cleanup).await {
                                 error!("Error cleaning up test data: {:?}", e);
                                 sentry::capture_message(&format!("Error cleaning up test data: {:?}", e), sentry::Level::Error);
+                            } else {
+                                info!("Test data cleanup completed successfully");
                             }
-                            server_handle.stop(true).await;
                         });
                         break;
                     }
@@ -357,12 +389,21 @@ async fn main() -> std::io::Result<()> {
                 return;
             }
             
-            info!("Ctrl+C received, cleaning up test data...");
+            info!("Ctrl+C received, stopping server and cleaning up test data...");
+            
+            // Stop the server first to prevent new requests
+            server_handle.stop(true).await;
+            
+            // Wait a moment for active requests to finish
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            
+            // Then cleanup test data
             if let Err(e) = ilma::configloader::cleanup_test_data(&pool_for_cleanup).await {
                 error!("Error cleaning up test data: {:?}", e);
                 sentry::capture_message(&format!("Error cleaning up test data: {:?}", e), sentry::Level::Error);
+            } else {
+                info!("Test data cleanup completed successfully");
             }
-            server_handle.stop(true).await;
         })
     };
 

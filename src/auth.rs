@@ -5,7 +5,10 @@ use serde_json::json;
 use std::env;
 use log::{error, warn, info, debug};
 use sentry;
-use rand::Rng;
+use rand::{Rng, rngs::OsRng, RngCore};
+use base64;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 
 use crate::models::{Claims, LoginRequest, LoginResponse, User, PasswordResetRequest, ResetPasswordRequest, PasswordResetToken};
 use crate::db::DbPool;
@@ -98,10 +101,12 @@ pub async fn login(
     debug!("Login attempt for email: {}", login_req.email);
     
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, username, email, password_hash, role, is_superuser, public_key, 
+        "SELECT id, email, password_hash, role, is_superuser, public_key, 
          COALESCE(recovery_key, '') as recovery_key, 
          COALESCE(encrypted_private_key_blob, '') as encrypted_private_key_blob, 
-         created_at, updated_at 
+         first_names, chosen_name, last_name, name_short, 
+         birthday, ssn, learner_number, person_oid, avatar_url, phone, address, 
+         enrollment_date, graduation_date, created_at, updated_at 
          FROM users WHERE email = $1"
     )
     .bind(&login_req.email)
@@ -114,18 +119,25 @@ pub async fn login(
         ApiError::AuthenticationError
     })?;
 
-    match user {
-        Some(user) => {
-            if verify_password(&login_req.password, &user.password_hash)? {
-                let token = create_jwt(&user)?;
-                Ok(HttpResponse::Ok().json(LoginResponse { token }))
-            } else {
-                Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
-            }
+    // Always perform password verification to prevent timing attacks
+    let is_valid = match user {
+        Some(ref user) => {
+            verify_password(&login_req.password, &user.password_hash)?
         }
         None => {
-            Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
+            // Perform dummy password verification with a fake hash to normalize timing
+            let dummy_hash = "$argon2id$v=19$m=19456,t=2,p=1$gZiV/M1gPc22ElAH/Jh1Hw$CWOrkoo7oJBQ/iyh7uJ0LO2aLEfrHwTWllSAxT0zRno";
+            let _ = verify_password(&login_req.password, dummy_hash);
+            false
         }
+    };
+
+    if is_valid && user.is_some() {
+        let user = user.unwrap();
+        let token = create_jwt(&user)?;
+        Ok(HttpResponse::Ok().json(LoginResponse { token }))
+    } else {
+        Ok(HttpResponse::Unauthorized().json(json!({"error": "Invalid credentials"})))
     }
 }
 
@@ -147,7 +159,10 @@ pub async fn request_password_reset(
 
     // Check if user exists
     let user = sqlx::query_as::<_, User>(
-        "SELECT id, username, email, password_hash, role, is_superuser, public_key, recovery_key, encrypted_private_key_blob, created_at, updated_at 
+        "SELECT id, email, password_hash, role, is_superuser, public_key, recovery_key, encrypted_private_key_blob, 
+         first_names, chosen_name, last_name, name_short, 
+         birthday, ssn, learner_number, person_oid, avatar_url, phone, address, 
+         enrollment_date, graduation_date, created_at, updated_at 
          FROM users WHERE email = $1"
     )
     .bind(&reset_req.email)
@@ -160,12 +175,10 @@ pub async fn request_password_reset(
     })?;
 
     if let Some(user) = user {
-        // Generate reset token
-        let reset_token: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
+        // Generate cryptographically secure reset token (256 bits of entropy)
+        let mut token_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut token_bytes);
+        let reset_token = URL_SAFE_NO_PAD.encode(&token_bytes);
 
         // Set expiration to 1 hour from now
         let expires_at = Utc::now() + Duration::hours(1);
@@ -216,14 +229,21 @@ pub async fn reset_password(
 ) -> Result<HttpResponse, ApiError> {
     info!("Password reset attempt with token");
 
-    // Find valid, unused token
+    // Use a transaction to atomically check and update the token
+    let mut tx = pool.begin().await.map_err(|e| {
+        error!("Database error starting transaction: {:?}", e);
+        ApiError::InternalServerError
+    })?;
+
+    // Find valid, unused token and mark it as used atomically
     let token = sqlx::query_as::<_, PasswordResetToken>(
-        "SELECT id, user_id, token, expires_at, created_at, used 
-         FROM password_reset_tokens 
-         WHERE token = $1 AND used = FALSE AND expires_at > NOW()"
+        "UPDATE password_reset_tokens 
+         SET used = TRUE 
+         WHERE token = $1 AND used = FALSE AND expires_at > NOW()
+         RETURNING id, user_id, token, expires_at, created_at, used"
     )
     .bind(&reset_req.reset_token)
-    .fetch_optional(pool.as_ref())
+    .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
         error!("Database error during password reset: {:?}", e);
@@ -242,22 +262,16 @@ pub async fn reset_password(
     .bind(&reset_req.new_password_hash)
     .bind(&reset_req.encrypted_private_key_blob)
     .bind(token.user_id)
-    .execute(pool.as_ref())
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         error!("Database error updating user password: {:?}", e);
         ApiError::InternalServerError
     })?;
 
-    // Mark token as used
-    sqlx::query(
-        "UPDATE password_reset_tokens SET used = TRUE WHERE id = $1"
-    )
-    .bind(token.id)
-    .execute(pool.as_ref())
-    .await
-    .map_err(|e| {
-        error!("Database error marking token as used: {:?}", e);
+    // Commit the transaction
+    tx.commit().await.map_err(|e| {
+        error!("Database error committing transaction: {:?}", e);
         ApiError::InternalServerError
     })?;
 

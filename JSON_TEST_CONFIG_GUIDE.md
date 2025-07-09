@@ -26,7 +26,6 @@ The main configuration file that defines all test data:
   "users": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
-      "username": "admin_test",
       "email": "admin.test@example.com",
       "password": "admin_test_password_123",
       "role": "principal",
@@ -87,7 +86,6 @@ TEST_CONFIG_PATH=test_config.json
 ```json
 {
   "id": "uuid",
-  "username": "string",
   "email": "string",
   "password": "plain_text_password",
   "role": "student|teacher|principal",

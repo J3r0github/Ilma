@@ -6,19 +6,26 @@ use sentry;
 
 use crate::auth::extract_claims;
 use crate::db::DbPool;
-use crate::models::{SendMessageRequest, Thread, ThreadPreview, Message, MessageEncryptedKey, UserRole, PaginationQuery, MessagePaginationQuery, EncryptedKey};
+use crate::models::{SendMessageRequest, ThreadPreview, Message, MessageEncryptedKey, PaginationQuery, MessagePaginationQuery, EncryptedKey, ErrorResponse};
 
+/// List all message threads for the authenticated user
+/// 
+/// Returns a paginated list of thread previews showing the most recent message
+/// from each thread that the user participates in.
 #[utoipa::path(
     get,
     path = "/api/messages/threads",
     tag = "messages",
     security(("bearerAuth" = [])),
     params(
-        ("limit" = Option<i32>, Query, description = "Maximum number of results"),
-        ("offset" = Option<i32>, Query, description = "Offset for pagination")
+        ("limit" = Option<i32>, Query, description = "Maximum number of results (default: 20)"),
+        ("offset" = Option<i32>, Query, description = "Offset for pagination (default: 0)")
     ),
     responses(
-        (status = 200, description = "List of threads", body = [ThreadPreview])
+        (status = 200, description = "List of thread previews for the authenticated user", body = [ThreadPreview]),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 400, description = "Invalid user ID format", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn list_threads(
@@ -68,14 +75,22 @@ pub async fn list_threads(
     Ok(HttpResponse::Ok().json(thread_previews))
 }
 
+/// Send an encrypted message to specified participants
+/// 
+/// Creates a new thread with the specified participants (including the sender)
+/// and sends an encrypted message. Each recipient gets their own encrypted key
+/// to decrypt the message content.
 #[utoipa::path(
     post,
     path = "/api/messages/threads",
     tag = "messages",
     security(("bearerAuth" = [])),
-    request_body = SendMessageRequest,
+    request_body(content = SendMessageRequest, description = "Message data including participants, encrypted content, and keys"),
     responses(
-        (status = 201, description = "Message sent, thread created if needed")
+        (status = 201, description = "Message sent successfully, thread created if needed", body = String, example = json!({"message": "Message sent successfully", "thread_id": "550e8400-e29b-41d4-a716-446655440000", "message_id": "550e8400-e29b-41d4-a716-446655440001"})),
+        (status = 400, description = "Invalid request data or non-existent participant", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn send_message(
@@ -99,9 +114,31 @@ pub async fn send_message(
         actix_web::error::ErrorInternalServerError("Database error")
     })?;
 
-    // Find existing thread with these exact participants
-    let mut participants = message_req.participant_ids.clone();
-    participants.sort();
+    // Validate that all participant IDs exist in the users table
+    let mut all_participants = message_req.participant_ids.clone();
+    // Ensure sender is included in participants
+    if !all_participants.contains(&sender_id) {
+        all_participants.push(sender_id);
+    }
+    
+    for participant_id in &all_participants {
+        let user_exists: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM users WHERE id = $1"
+        )
+        .bind(participant_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| {
+            error!("Database error checking user existence: {}", e);
+            actix_web::error::ErrorInternalServerError("Database error")
+        })?;
+        
+        if user_exists.is_none() {
+            return Ok(HttpResponse::BadRequest().json(json!({
+                "error": format!("User with ID {} does not exist", participant_id)
+            })));
+        }
+    }
 
     // For simplicity, we'll create a new thread for each message
     // In a real implementation, you'd want to find existing threads with the same participants
@@ -117,15 +154,15 @@ pub async fn send_message(
             actix_web::error::ErrorInternalServerError("Database error")
         })?;
 
-    // Add participants to thread
-    for participant_id in &message_req.participant_ids {
+    // Add participants to thread (including sender)
+    for participant_id in &all_participants {
         sqlx::query("INSERT INTO thread_participants (thread_id, user_id) VALUES ($1, $2)")
             .bind(thread_id)
             .bind(participant_id)
             .execute(&mut *tx)
             .await
             .map_err(|e| {
-                error!("Database error: {}", e);
+                error!("Database error adding participant {}: {}", participant_id, e);
                 actix_web::error::ErrorInternalServerError("Database error")
             })?;
     }
@@ -177,18 +214,27 @@ pub async fn send_message(
     })))
 }
 
+/// Get messages from a specific thread
+/// 
+/// Retrieves encrypted messages from a thread that the user participates in.
+/// Messages are returned with encrypted keys for each recipient. Supports
+/// cursor-based pagination using the 'before' parameter.
 #[utoipa::path(
     get,
     path = "/api/messages/threads/{thread_id}",
     tag = "messages",
     security(("bearerAuth" = [])),
     params(
-        ("thread_id" = String, Path, description = "Thread UUID"),
-        ("limit" = Option<i32>, Query, description = "Maximum number of messages"),
-        ("before" = Option<String>, Query, description = "Message ID to paginate before")
+        ("thread_id" = Uuid, Path, description = "Thread UUID to retrieve messages from"),
+        ("limit" = Option<i32>, Query, description = "Maximum number of messages to retrieve (default: 20)"),
+        ("before" = Option<String>, Query, description = "Message ID to paginate before (for cursor-based pagination)")
     ),
     responses(
-        (status = 200, description = "Messages list", body = [Message])
+        (status = 200, description = "Messages from the specified thread with encrypted keys", body = [Message]),
+        (status = 400, description = "Invalid thread ID or message ID format", body = ErrorResponse),
+        (status = 401, description = "Authentication required", body = ErrorResponse),
+        (status = 403, description = "User is not a participant in this thread", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn get_thread_messages(
@@ -205,7 +251,7 @@ pub async fn get_thread_messages(
     let limit = query.limit.unwrap_or(20);
 
     // Check if user is participant in this thread
-    let is_participant: Option<()> = sqlx::query_scalar(
+    let is_participant: Option<i32> = sqlx::query_scalar(
         "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2"
     )
     .bind(thread_id)

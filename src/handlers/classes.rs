@@ -262,11 +262,14 @@ pub async fn get_class_students(
     }
 
     let students = sqlx::query_as::<_, crate::models::User>(
-        "SELECT u.id, u.username, u.email, u.role, u.is_superuser, u.public_key, u.created_at, u.updated_at
+        "SELECT u.id, u.email, u.password_hash, u.role, u.is_superuser, u.public_key, u.recovery_key, u.encrypted_private_key_blob,
+         u.first_names, u.chosen_name, u.last_name, u.name_short, 
+         u.birthday, u.ssn, u.learner_number, u.person_oid, u.avatar_url, u.phone, u.address, 
+         u.enrollment_date, u.graduation_date, u.created_at, u.updated_at
          FROM users u
          JOIN class_students cs ON u.id = cs.student_id
          WHERE cs.class_id = $1
-         ORDER BY u.username"
+         ORDER BY u.email"
     )
     .bind(class_id)
     .fetch_all(pool.as_ref())

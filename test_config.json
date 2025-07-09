@@ -1,43 +1,53 @@
 {
   "version": "1.0",
-  "description": "Complete database state configuration for testing",
+  "description": "Complete database state configuration for E2E encrypted messaging testing",
   "rollback_on_shutdown": true,
   "users": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
-      "username": "admin_test",
       "email": "admin@test.edu",
       "password": "admin123",
       "role": "principal",
       "is_superuser": true,
-      "public_key": "TEST_ADMIN_PUBLIC_KEY"
+      "first_names": "Dr. Sarah",
+      "chosen_name": "Dr. Johnson",
+      "last_name": "Johnson",
+      "name_short": "DrJ",
+      "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBdGtaM0JyOHhYZlNHT2c0UWtQSkcKZz0KLS0tLS1FTkQgUlNBIFBVQkxJQyBLRVktLS0tLQ=="
     },
     {
       "id": "550e8400-e29b-41d4-a716-446655440001",
-      "username": "teacher_test",
       "email": "teacher@test.edu",
       "password": "teacher123",
       "role": "teacher",
       "is_superuser": false,
-      "public_key": "TEST_TEACHER_PUBLIC_KEY"
+      "first_names": "Emily",
+      "chosen_name": "Ms. Wilson",
+      "last_name": "Wilson",
+      "name_short": "WIL",
+      "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBcjNIZ1VtQjNWWGE4UlNIV0NpWVQKZz0KLS0tLS1FTkQgUlNBIFBVQkxJQyBLRVktLS0tLQ=="
     },
     {
       "id": "550e8400-e29b-41d4-a716-446655440002",
-      "username": "student_test_1",
       "email": "student1@example.com",
       "password": "student123",
       "role": "student",
       "is_superuser": false,
-      "public_key": "TEST_STUDENT1_PUBLIC_KEY"
+      "first_names": "Alex",
+      "chosen_name": "Alex",
+      "last_name": "Thompson",
+      "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBeHJ0TWNxeGNmNHZSWWpNT1pTbkcKZz0KLS0tLS1FTkQgUlNBIFBVQkxJQyBLRVktLS0tLQ=="
     },
     {
       "id": "550e8400-e29b-41d4-a716-446655440003",
-      "username": "student_test_2",
       "email": "student2@test.edu",
       "password": "student123",
       "role": "student",
       "is_superuser": false,
-      "public_key": "TEST_STUDENT2_PUBLIC_KEY"
+      "first_names": "Jordan",
+      "chosen_name": "J",
+      "last_name": "Davis",
+      "public_key": "LS0tLS1CRUdJTiBSU0EgUFVCTElDIEtFWS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBeTNyN3ZQZmxSV0toV1pVNkh0SnAKZz0KLS0tLS1FTkQgUlNBIFBVQkxJQyBLRVktLS0tLQ=="
     }
   ],
   "classes": [
@@ -116,26 +126,52 @@
       "id": "aa0e8400-e29b-41d4-a716-446655440000",
       "thread_id": "bb0e8400-e29b-41d4-a716-446655440000",
       "sender_id": "550e8400-e29b-41d4-a716-446655440001",
-      "ciphertext": "encrypted_test_message_1",
-      "encrypted_keys": [
-        {
-          "recipient_id": "550e8400-e29b-41d4-a716-446655440002",
-          "encrypted_key": "encrypted_key_for_student1"
-        },
-        {
-          "recipient_id": "550e8400-e29b-41d4-a716-446655440003",
-          "encrypted_key": "encrypted_key_for_student2"
-        }
-      ]
+      "sent_at": "2025-07-08T09:30:00Z",
+      "content": "Hello! Welcome to our school messaging system. This is a test message from the teacher."
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440001",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440000",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sent_at": "2025-07-08T10:15:00Z",
+      "content": "Thank you for the warm welcome! I'm excited to be part of this school community."
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440002",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440001",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440001",
+      "sent_at": "2025-07-08T11:00:00Z",
+      "content": "Don't forget about the upcoming science project deadline next Friday. Please submit your projects on time."
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440003",
+      "thread_id": "bb0e8400-e29b-41d4-a716-446655440002",
+      "sender_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sent_at": "2025-07-08T14:30:00Z",
+      "content": "I have a question about the math homework from yesterday. Could you please help me understand problem 5?"
     }
   ],
   "threads": [
     {
       "id": "bb0e8400-e29b-41d4-a716-446655440000",
       "participants": [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "550e8400-e29b-41d4-a716-446655440001"
+      ]
+    },
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440001",
+      "participants": [
         "550e8400-e29b-41d4-a716-446655440001",
         "550e8400-e29b-41d4-a716-446655440002",
         "550e8400-e29b-41d4-a716-446655440003"
+      ]
+    },
+    {
+      "id": "bb0e8400-e29b-41d4-a716-446655440002",
+      "participants": [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "550e8400-e29b-41d4-a716-446655440001"
       ]
     }
   ],

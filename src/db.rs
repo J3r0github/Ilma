@@ -120,27 +120,6 @@ pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
-    // Drop username column and its constraint if they exist (removing deprecated field)
-    sqlx::query(r#"
-        DO $$ BEGIN
-            IF EXISTS (
-                SELECT 1 FROM information_schema.table_constraints 
-                WHERE constraint_name = 'users_username_key' 
-                AND table_name = 'users'
-            ) THEN
-                ALTER TABLE users DROP CONSTRAINT users_username_key;
-            END IF;
-        END $$;
-    "#)
-    .execute(pool)
-    .await?;
-
-    sqlx::query(r#"
-        ALTER TABLE users DROP COLUMN IF EXISTS username;
-    "#)
-    .execute(pool)
-    .await?;
-
     // Create password reset tokens table
     sqlx::query(r#"
         CREATE TABLE IF NOT EXISTS password_reset_tokens (

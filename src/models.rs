@@ -4,7 +4,7 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema, sqlx::Type)]
 #[sqlx(type_name = "user_role", rename_all = "lowercase")]
 pub enum UserRole {
     #[serde(rename = "student")]
@@ -13,6 +13,16 @@ pub enum UserRole {
     Teacher,
     #[serde(rename = "principal")]
     Principal,
+}
+
+impl std::fmt::Display for UserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UserRole::Student => write!(f, "student"),
+            UserRole::Teacher => write!(f, "teacher"),
+            UserRole::Principal => write!(f, "principal"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
@@ -26,7 +36,6 @@ pub struct User {
     pub password_hash: String,
     #[serde(skip)]
     pub recovery_key: Option<String>,
-    #[serde(skip)]
     pub encrypted_private_key_blob: Option<String>,
     
     // Name fields for students
@@ -81,6 +90,7 @@ pub struct Thread {
     pub created_at: DateTime<Utc>,
 }
 
+/// A preview of a message thread showing the latest message
 #[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ThreadPreview {
     pub thread_id: Uuid,
@@ -88,12 +98,14 @@ pub struct ThreadPreview {
     pub last_message_at: DateTime<Utc>,
 }
 
+/// Encrypted key for a specific recipient of a message
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EncryptedKey {
     pub recipient_id: Uuid,
     pub encrypted_key: String,
 }
 
+/// A message in an encrypted conversation thread
 #[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Message {
     pub id: Uuid,
@@ -102,10 +114,12 @@ pub struct Message {
     pub sent_at: DateTime<Utc>,
     pub ciphertext: String,
     #[sqlx(skip)]
+    #[serde(default)]
     pub encrypted_keys: Vec<EncryptedKey>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+/// Database model for message encryption keys
+#[derive(Debug, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct MessageEncryptedKey {
     pub message_id: Uuid,
     pub recipient_id: Uuid,
@@ -259,7 +273,8 @@ pub struct UpdateAttendanceRequest {
     pub status: AttendanceStatus,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+/// Request to send an encrypted message to participants
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SendMessageRequest {
     pub participant_ids: Vec<Uuid>,
     pub ciphertext: String,
@@ -334,6 +349,7 @@ pub struct PaginationQuery {
     pub offset: Option<i32>,
 }
 
+/// Query parameters for message pagination using cursor-based pagination
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MessagePaginationQuery {
     pub limit: Option<i32>,
